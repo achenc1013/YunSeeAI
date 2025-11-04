@@ -135,6 +135,28 @@ export async function scanFull(target, options = {}) {
  * @param {boolean} online - Enable online CVE queries (default: true)
  * @returns {Promise<Object>} - CVE scan results
  */
+/**
+ * Scan for WAF (Web Application Firewall) presence
+ * @param {string} target - Target URL
+ * @param {number} timeout - Timeout in seconds
+ * @returns {Promise<Object>} - WAF scan results
+ */
+export async function scanWAF(target, timeout = 10) {
+  try {
+    // WAF scanner only needs target URL as argument
+    const args = [target];
+    
+    const result = await executePythonScript('waf_scanner.py', args);
+    return result;
+  } catch (error) {
+    return {
+      success: false,
+      error: error.message,
+      target
+    };
+  }
+}
+
 export async function scanVulnerabilities(target, fingerprintData = null, online = true) {
   try {
     // If no fingerprint data, scan first

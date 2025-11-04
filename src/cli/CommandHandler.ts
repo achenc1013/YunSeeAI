@@ -90,14 +90,37 @@ export class CommandHandler {
         'scan', 'port', 'ports', 'framework', 'technology', 'technologies',
         'fingerprint', 'website', 'open', 'service', 'services',
         'vulnerability', 'vulnerabilities', 'cve', 'exploit', 'security issue',
-        '扫描', '端口', '框架', '技术', '网站', '开放', '漏洞', '安全漏洞', '安全问题'
+        'cms', 'nmap', 'port scan', 'waf', 'firewall',
+        '扫描', '端口', '框架', '技术', '网站', '开放', '漏洞', '安全漏洞', '安全问题',
+        '端口扫描', '开通', '提供', '运行', '服务', 'CMS', '内容管理系统',
+        '哪些服务', '什么服务', '开了哪些', '提供了什么', '运行了什么',
+        'WAF', '防火墙', '防护'
       ];
       
       const isScanRequest = scanKeywords.some(kw => lowerInput.includes(kw));
       
       if (isScanRequest) {
-        // Try to parse as scan intent
-        const intent = parseIntent(input);
+        // Use semantic pattern matching for intelligent understanding
+        let intent = null;
+        
+        try {
+          // Import semantic parser
+          // @ts-ignore
+          const { parseSemanticIntent } = await import('../../scanner/semantic-intent-parser.js');
+          
+          // Try semantic understanding
+          intent = parseSemanticIntent(input);
+          
+          if (intent.success && intent.method === 'semantic-understanding') {
+            process.stdout.write(chalk.gray(`   💡 智能理解: 语义分析识别意图\n`));
+          }
+        } catch (error) {
+          // Fallback to simple keyword parsing
+          console.error('[Semantic Parser] Failed, using fallback:', error);
+          // @ts-ignore
+          const { parseIntent } = await import('../../scanner/ai-integration.js');
+          intent = parseIntent(input);
+        }
         
         if (intent.success && intent.target) {
           // This is a valid scan request - execute it
@@ -234,19 +257,134 @@ export class CommandHandler {
                   }
                 }
               } 
-              else if (intent.intent === 'framework') {
-                // Only show fingerprint results
+              else if (intent.intent === 'waf') {
+                // WAF detection display
+                const wafData = scanResult.raw_results;
+                if (wafData.success) {
+                  displayResult += `目标: ${wafData.target}\n\n`;
+                  
+                  if (wafData.waf_detected && wafData.detected_wafs && wafData.detected_wafs.length > 0) {
+                    displayResult += `🛡️  WAF检测结果:\n\n`;
+                    
+                    wafData.detected_wafs.forEach((waf: any) => {
+                      const confidenceIcon: any = {
+                        'high': '🟢',
+                        'medium': '🟡',
+                        'low': '⚪'
+                      };
+                      const icon = confidenceIcon[waf.confidence] || '⚪';
+                      
+                      displayResult += chalk.green(`  ${confidenceIcon} 检测到WAF: ${waf.name}\n`);
+                      displayResult += `     置信度: ${waf.confidence}\n`;
+                      displayResult += `     检测方式: ${waf.detection_method}\n`;
+                      displayResult += '\n';
+                    });
+                    
+                    // Simplified AI context
+                    const wafNames = wafData.detected_wafs.map((w: any) => w.name).join('、');
+                    aiContext = `目标${intent.target}使用了${wafNames}防火墙保护。`;
+                  } else {
+                    displayResult += chalk.yellow(`  未检测到WAF防护\n\n`);
+                    displayResult += `  说明：\n`;
+                    displayResult += `  • 目标网站可能未部署WAF\n`;
+                    displayResult += `  • WAF可能采用了隐藏指纹技术\n`;
+                    displayResult += `  • 目标可能使用自定义安全方案\n`;
+                    
+                    aiContext = `目标${intent.target}未检测到明显的WAF防护。`;
+                  }
+                }
+              }
+              else if (intent.intent === 'cms') {
+                // CMS-specific display with clear identification
                 const fpData = scanResult.raw_results.fingerprint_scan || scanResult.raw_results;
                 if (fpData.success) {
                   displayResult += `目标: ${fpData.target}\n\n`;
                   
-                  if (fpData.server_info && Object.keys(fpData.server_info).length > 0) {
-                    displayResult += `服务器信息:\n`;
-                    Object.entries(fpData.server_info).forEach(([key, value]) => {
-                      displayResult += `  • ${key}: ${value}\n`;
+                  // Extract CMS systems
+                  const cmsItems = fpData.technologies ? fpData.technologies.filter((t: any) => t.type === 'CMS') : [];
+                  
+                  if (cmsItems.length > 0) {
+                    displayResult += `🎯 CMS识别结果:\n\n`;
+                    cmsItems.forEach((cms: any) => {
+                      displayResult += chalk.green(`  ✅ 检测到CMS: ${cms.name}\n`);
+                      displayResult += `     置信度: ${cms.confidence}\n`;
+                      if (cms.detected_path) {
+                        displayResult += `     特征路径: ${cms.detected_path}\n`;
+                      }
+                      displayResult += '\n';
                     });
-                    displayResult += '\n';
+                    
+                    // Show related tech (optional)
+                    const otherTech = fpData.technologies?.filter((t: any) => t.type !== 'CMS') || [];
+                    if (otherTech.length > 0) {
+                      displayResult += `相关技术:\n`;
+                      const byType: any = {};
+                      otherTech.forEach((tech: any) => {
+                        if (!byType[tech.type]) byType[tech.type] = [];
+                        byType[tech.type].push(tech);
+                      });
+                      Object.entries(byType).forEach(([type, techs]: [string, any]) => {
+                        displayResult += `  ${type}: ${techs.map((t: any) => t.name).join(', ')}\n`;
+                      });
+                    }
+                    
+                    // Simplified AI context - directly state the CMS
+                    const cmsNames = cmsItems.map((c: any) => c.name).join('、');
+                    aiContext = `目标${intent.target}使用了${cmsNames} CMS系统。`;
+                  } else {
+                    displayResult += chalk.yellow(`  未检测到CMS系统\n\n`);
+                    displayResult += `  可能原因：\n`;
+                    displayResult += `  • 使用自定义开发\n`;
+                    displayResult += `  • 启用了指纹隐藏\n`;
+                    displayResult += `  • 静态网站\n`;
+                    
+                    aiContext = `目标${intent.target}未检测到CMS系统，可能使用自定义开发。`;
                   }
+                }
+              }
+              else if (intent.intent === 'waf') {
+                // WAF detection display
+                const wafData = scanResult.raw_results;
+                if (wafData.success) {
+                  displayResult += `目标: ${wafData.target}\n\n`;
+                  
+                  if (wafData.waf_detected) {
+                    displayResult += chalk.yellow(`🛡️  WAF检测结果:\n\n`);
+                    
+                    if (wafData.detected_wafs && wafData.detected_wafs.length > 0) {
+                      displayResult += chalk.green(`  ✅ 检测到WAF防护:\n\n`);
+                      wafData.detected_wafs.forEach((waf: any) => {
+                        displayResult += chalk.cyan(`     • ${waf.name}\n`);
+                        displayResult += `       置信度: ${waf.confidence}\n`;
+                      });
+                      displayResult += '\n';
+                      
+                      // Simplified AI context
+                      const wafNames = wafData.detected_wafs.map((w: any) => w.name).join('、');
+                      aiContext = `目标${intent.target}使用了${wafNames} WAF防护。`;
+                    } else if (wafData.generic_detection) {
+                      displayResult += chalk.yellow(`  ⚠️  检测到通用WAF防护\n`);
+                      displayResult += `     (无法识别具体WAF类型)\n\n`;
+                      
+                      aiContext = `目标${intent.target}存在WAF防护，但无法识别具体类型。`;
+                    }
+                    
+                    displayResult += chalk.gray(`  提示: WAF防护可能影响扫描和测试结果\n`);
+                  } else {
+                    displayResult += chalk.green(`  ✅ 未检测到WAF防护\n\n`);
+                    displayResult += `  说明:\n`;
+                    displayResult += `  • 目标网站可能没有部署WAF\n`;
+                    displayResult += `  • 或WAF配置较为隐蔽\n`;
+                    
+                    aiContext = `目标${intent.target}未检测到WAF防护。`;
+                  }
+                }
+              }
+              else if (intent.intent === 'framework') {
+                // Framework/technology display
+                const fpData = scanResult.raw_results.fingerprint_scan || scanResult.raw_results;
+                if (fpData.success) {
+                  displayResult += `目标: ${fpData.target}\n\n`;
                   
                   if (fpData.technologies && fpData.technologies.length > 0) {
                     displayResult += `检测到的技术 (${fpData.total_detected}):\n`;
@@ -264,20 +402,14 @@ export class CommandHandler {
                         displayResult += `    • ${tech.name} (置信度: ${tech.confidence})\n`;
                       });
                     });
+                    
+                    // Simplified AI context
+                    const techList = fpData.technologies.map((t: any) => t.name).join('、');
+                    aiContext = `目标${intent.target}使用了${techList}等技术。`;
                   } else {
                     displayResult += '  未能识别具体框架或技术栈\n';
+                    aiContext = `目标${intent.target}未能识别具体技术栈。`;
                   }
-                  
-                  // 明确说明当前查询的目标，避免与历史对话混淆
-                  const targetWithoutPort = intent.target.replace(/:\d+\/?$/, '/'); // 移除端口号显示
-                  aiContext = `当前查询目标：${intent.target}\n`;
-                  aiContext += `技术栈扫描结果：`;
-                  if (fpData.technologies && fpData.technologies.length > 0) {
-                    aiContext += `检测到 ${fpData.total_detected} 种技术，包括 ${fpData.technologies.map((t: any) => t.name).join(', ')}。`;
-                  } else {
-                    aiContext += '未能识别具体技术。';
-                  }
-                  aiContext += `\n\n注意：本次查询仅进行了技术栈识别，未进行端口扫描。`;
                 }
               }
               else {
@@ -294,13 +426,17 @@ export class CommandHandler {
               
               let aiPrompt = '';
               if (intent.intent === 'vulnerability') {
-                aiPrompt = `${aiContext}\n\n请简要分析：\n1. 漏洞的严重程度和紧急程度\n2. 这些漏洞可能带来的实际威胁\n3. 给出修复优先级建议\n\n请用中文回复，3-4句话即可，专业且易懂。`;
+                aiPrompt = `${aiContext}\n\n简要分析漏洞风险和修复建议。中文，2-3句。`;
               } else if (intent.intent === 'port') {
-                aiPrompt = `${aiContext}\n\n请简要分析：\n1. 这些端口是否存在安全风险\n2. 哪些端口需要特别注意\n3. 给出2-3条安全建议\n\n请用中文回复，2-3句话即可，不要重复列举端口。`;
-              } else if (intent.intent === 'framework' || intent.intent === 'cms') {
-                aiPrompt = `${aiContext}\n\n请简要分析：\n1. 技术栈是否合理\n2. 是否有已知的安全隐患\n3. 简短的安全建议\n\n重要提示：本次查询ONLY关注技术栈/CMS识别，不涉及端口扫描。请不要提及端口信息。\n\n请用中文回复，2-3句话即可。`;
+                aiPrompt = `${aiContext}\n\n分析端口安全风险，给出建议。中文，2句话。`;
+              } else if (intent.intent === 'waf') {
+                aiPrompt = `${aiContext}\n\n分析WAF防护效果和建议。中文，2句话。`;
+              } else if (intent.intent === 'cms') {
+                aiPrompt = `${aiContext}\n\n分析CMS安全性和建议。中文，2句话。不要提端口。`;
+              } else if (intent.intent === 'framework') {
+                aiPrompt = `${aiContext}\n\n分析技术栈安全性。中文，2句话。`;
               } else {
-                aiPrompt = `${aiContext}\n\n请综合分析扫描结果，给出安全评估和建议。用中文回复，保持简洁。`;
+                aiPrompt = `${aiContext}\n\n简要评估和建议。中文，保持简洁。`;
               }
               
               await this.assistant.sendMessage(aiPrompt, (token) => {

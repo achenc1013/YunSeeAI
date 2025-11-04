@@ -46,6 +46,9 @@ Response format:
  * @param {string} userMessage - User's natural language request
  * @returns {Object} - Parsed intent with tool and parameters
  */
+// Store last target for context awareness
+let lastTarget = null;
+
 export function parseIntent(userMessage) {
   const message = userMessage.toLowerCase();
   
@@ -75,6 +78,15 @@ export function parseIntent(userMessage) {
     // Keep the trailing slash as it's part of the URL
   }
   
+  // If no target found but user is clearly requesting a scan, use last target
+  const scanIndicators = ['扫描', '端口扫描', 'scan', 'port scan', '扫一下', '扫描一下'];
+  const isScanCommand = scanIndicators.some(indicator => message.includes(indicator));
+  
+  if (!target && isScanCommand && lastTarget) {
+    target = lastTarget;
+    console.log(`[INFO] No target in message, using last target: ${target}`);
+  }
+  
   if (!target) {
     return {
       success: false,
@@ -82,13 +94,23 @@ export function parseIntent(userMessage) {
     };
   }
   
+  // Store target for future context
+  lastTarget = target;
+  
   // Determine intent - be specific and precise
   const keywords = {
     vulnerability: ['vulnerability', 'vulnerabilities', 'cve', 'exploit', 'security issue', 'security flaw', '漏洞', '安全漏洞', '安全问题', 'CVE'],
-    port: ['port', 'ports', 'open port', 'service', 'services', '端口', '开放'],
-    framework: ['framework', 'cms', 'technology', 'technologies', 'stack', 'built with', 'using', 'powered by', '框架', '技术', '用的', '使用', 'CMS', '内容管理系统'],
-    cms: ['cms', 'CMS', '内容管理系统', 'content management'],  // Dedicated CMS keywords
-    full: ['全面', 'full scan', 'complete scan', 'everything', '全部', '完整']
+    waf: ['waf', 'firewall', '防火墙', 'web application firewall', 'waf防火墙'],  // WAF keywords
+    port: [
+      'port', 'ports', 'open port', 'service', 'services', '端口', '开放', '开放端口',
+      '端口扫描', 'port scan', 'scan port', '扫描端口', 'nmap',
+      '开通', '开通了', '提供', '提供了', '运行', '运行了',
+      '开通了哪些服务', '提供了什么服务', '运行了什么服务', '开了哪些端口',
+      '哪些服务', '什么服务', '服务列表'
+    ],
+    framework: ['framework', 'technology', 'technologies', 'stack', 'built with', 'using', 'powered by', '框架', '技术', '用的', '使用', '技术栈'],
+    cms: ['cms', 'CMS', '内容管理系统', 'content management', '用了什么cms', '什么cms'],  // Dedicated CMS keywords
+    full: ['全面', 'full scan', 'complete scan', 'everything', '全部', '完整', '全面扫描']
   };
   
   // More intelligent intent detection with priority
@@ -97,6 +119,10 @@ export function parseIntent(userMessage) {
   // Highest priority: Vulnerability/CVE queries
   if (keywords.vulnerability.some(kw => message.includes(kw))) {
     intent = 'vulnerability';
+  }
+  // Check for WAF queries (high priority)
+  else if (keywords.waf.some(kw => message.includes(kw))) {
+    intent = 'waf';
   }
   // Check for explicit CMS requests (high priority)
   else if (keywords.cms.some(kw => message.includes(kw))) {
@@ -130,6 +156,7 @@ export function parseIntent(userMessage) {
   // Map intent to tool
   const toolMap = {
     vulnerability: 'scan_vulnerabilities',
+    waf: 'scan_waf',  // WAF detection
     port: 'scan_ports',
     framework: 'scan_fingerprint',
     cms: 'scan_fingerprint',  // CMS queries use fingerprint scanning
@@ -333,6 +360,29 @@ function generateResponse(intent, scanResult, formattedResults) {
       }
     } else {
       response += `未检测到开放端口（扫描范围：常见端口）。\n`;
+    }
+  }
+  else if (intent.intent === 'waf') {
+    // WAF detection output
+    const wafData = scanResult;
+    
+    if (wafData.waf_detected) {
+      if (wafData.detected_wafs && wafData.detected_wafs.length > 0) {
+        response += `🛡️ 检测到WAF防护：\n\n`;
+        wafData.detected_wafs.forEach(waf => {
+          response += `  • ${waf.name}\n`;
+          response += `    置信度: ${waf.confidence}\n`;
+        });
+        response += `\n💡 提示: WAF防护可能会影响后续的扫描和安全测试。\n`;
+      } else {
+        response += `⚠️ 检测到通用WAF防护\n\n`;
+        response += `说明: 目标存在WAF防护，但无法识别具体类型。\n`;
+      }
+    } else {
+      response += `✅ 未检测到WAF防护\n\n`;
+      response += `说明:\n`;
+      response += `  • 目标网站可能没有部署WAF\n`;
+      response += `  • 或WAF配置较为隐蔽\n`;
     }
   }
   else if (intent.intent === 'cms') {

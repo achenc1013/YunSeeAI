@@ -149,3 +149,10 @@ declare const _default: {
 
 export default _default;
 
+// Semantic Intent Parser Types
+declare module '../../scanner/semantic-intent-parser.js' {
+  export function parseSemanticIntent(userMessage: string): ParsedIntent;
+  export function clearContext(): void;
+  export function getContext(): { lastTarget: string | null };
+}
+

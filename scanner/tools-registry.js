@@ -3,7 +3,7 @@
  * Defines available tools for AI to call
  */
 
-import { scanPorts, scanFingerprint, scanFull, scanVulnerabilities } from './scanner-client.js';
+import { scanPorts, scanFingerprint, scanFull, scanVulnerabilities, scanWAF } from './scanner-client.js';
 
 /**
  * Available tools for AI function calling
@@ -112,6 +112,30 @@ export const SCANNER_TOOLS = [
     handler: async (args) => {
       const { target, online = true } = args;
       return await scanVulnerabilities(target, null, online);
+    }
+  },
+  
+  {
+    name: 'scan_waf',
+    description: 'Detect Web Application Firewall (WAF) protecting the target. Use this when user asks about WAF, firewall, or security protection.',
+    parameters: {
+      type: 'object',
+      properties: {
+        target: {
+          type: 'string',
+          description: 'Target URL to scan for WAF (e.g., https://example.com)'
+        },
+        timeout: {
+          type: 'number',
+          description: 'Timeout in seconds (default: 10)',
+          default: 10
+        }
+      },
+      required: ['target']
+    },
+    handler: async (args) => {
+      const { target, timeout = 10 } = args;
+      return await scanWAF(target, timeout);
     }
   }
 ];

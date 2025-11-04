@@ -23,26 +23,178 @@ except ImportError:
 class FingerprintScanner:
     """Web application fingerprint scanner"""
     
-    # Framework/CMS fingerprints
+    # Framework/CMS fingerprints (Enhanced with more CMS systems)
     FINGERPRINTS = {
-        # CMS Systems
+        # ===== International CMS =====
+        
+        # WordPress - Most popular CMS
         "WordPress": {
-            "paths": ["/wp-admin/", "/wp-content/", "/wp-includes/"],
+            "paths": ["/wp-admin/", "/wp-content/", "/wp-includes/", "/wp-login.php", "/xmlrpc.php"],
             "headers": {},
-            "body_patterns": ["wp-content", "wp-includes", "WordPress"],
-            "meta_tags": ["generator.*WordPress"]
+            "body_patterns": ["wp-content", "wp-includes", "WordPress", "wp-json"],
+            "meta_tags": ["generator.*WordPress"],
+            "cookies": ["wordpress_", "wp-settings"]
         },
+        
+        # Joomla - Second most popular
         "Joomla": {
-            "paths": ["/administrator/", "/components/", "/modules/"],
+            "paths": ["/administrator/", "/components/", "/modules/", "/templates/"],
             "headers": {},
-            "body_patterns": ["Joomla!", "/media/jui/"],
-            "meta_tags": ["generator.*Joomla"]
+            "body_patterns": ["Joomla!", "/media/jui/", "com_content"],
+            "meta_tags": ["generator.*Joomla"],
+            "cookies": []
         },
+        
+        # Drupal - Enterprise CMS
         "Drupal": {
-            "paths": ["/sites/default/", "/misc/drupal.js"],
+            "paths": ["/sites/default/", "/misc/drupal.js", "/core/", "/modules/"],
             "headers": {"X-Drupal-Cache": ".*", "X-Generator": "Drupal.*"},
-            "body_patterns": ["Drupal", "/sites/default/"],
-            "meta_tags": ["generator.*Drupal"]
+            "body_patterns": ["Drupal", "/sites/default/", "drupal.js"],
+            "meta_tags": ["generator.*Drupal"],
+            "cookies": ["SESS"]
+        },
+        
+        # ===== Chinese CMS (国产CMS) =====
+        
+        # Discuz - 康盛论坛系统
+        "Discuz": {
+            "paths": ["/forum.php", "/admin.php", "/member.php", "/static/image/common/"],
+            "headers": {},
+            "body_patterns": ["Discuz!", "Comsenz", "discuz_uid", "home.php?mod=space"],
+            "meta_tags": [],
+            "cookies": ["discuz"]
+        },
+        
+        # DedeCMS (织梦CMS) - Popular Chinese CMS
+        "DedeCMS": {
+            "paths": ["/plus/", "/templets/", "/data/", "/dede/"],
+            "headers": {},
+            "body_patterns": ["DedeCMS", "织梦", "Power by DedeCms", "/templets/default/"],
+            "meta_tags": ["generator.*DedeCMS"],
+            "cookies": ["DedeUserID"]
+        },
+        
+        # PHPCMS - 盛大CMS
+        "PHPCMS": {
+            "paths": ["/phpcms/", "/statics/", "/index.php?m=content"],
+            "headers": {},
+            "body_patterns": ["PHPCMS", "phpcms.cn"],
+            "meta_tags": [],
+            "cookies": []
+        },
+        
+        # EmpireCMS (帝国CMS)
+        "EmpireCMS": {
+            "paths": ["/e/admin/", "/e/data/", "/e/class/"],
+            "headers": {},
+            "body_patterns": ["EmpireCMS", "帝国", "/e/data/"],
+            "meta_tags": [],
+            "cookies": []
+        },
+        
+        # Typecho - Lightweight blog
+        "Typecho": {
+            "paths": ["/admin/", "/usr/themes/", "/usr/plugins/"],
+            "headers": {},
+            "body_patterns": ["Typecho", "typecho"],
+            "meta_tags": ["generator.*Typecho"],
+            "cookies": ["__typecho"]
+        },
+        
+        # Z-Blog - ASP/PHP blog
+        "Z-Blog": {
+            "paths": ["/zb_users/", "/zb_system/"],
+            "headers": {},
+            "body_patterns": ["Z-Blog", "zblog", "zb_users"],
+            "meta_tags": ["generator.*Z-Blog"],
+            "cookies": []
+        },
+        
+        # ===== E-commerce CMS =====
+        
+        # Shopify
+        "Shopify": {
+            "paths": ["/cart", "/checkout"],
+            "headers": {"X-Shopify-Stage": ".*"},
+            "body_patterns": ["Shopify", "shopify.com", "cdn.shopify.com"],
+            "meta_tags": [],
+            "cookies": ["_shopify"]
+        },
+        
+        # Magento
+        "Magento": {
+            "paths": ["/skin/frontend/", "/js/mage/", "/media/catalog/"],
+            "headers": {"X-Magento": ".*"},
+            "body_patterns": ["Magento", "Mage.Cookies", "/skin/frontend/"],
+            "meta_tags": [],
+            "cookies": []
+        },
+        
+        # WooCommerce (WordPress plugin)
+        "WooCommerce": {
+            "paths": ["/wp-content/plugins/woocommerce/"],
+            "headers": {},
+            "body_patterns": ["woocommerce", "WooCommerce"],
+            "meta_tags": [],
+            "cookies": []
+        },
+        
+        # ===== Forum/Community CMS =====
+        
+        # phpBB
+        "phpBB": {
+            "paths": ["/viewtopic.php", "/memberlist.php"],
+            "headers": {},
+            "body_patterns": ["phpBB", "Powered by phpBB"],
+            "meta_tags": [],
+            "cookies": ["phpbb"]
+        },
+        
+        # vBulletin
+        "vBulletin": {
+            "paths": ["/showthread.php", "/forumdisplay.php"],
+            "headers": {},
+            "body_patterns": ["vBulletin", "vbulletin"],
+            "meta_tags": ["generator.*vBulletin"],
+            "cookies": []
+        },
+        
+        # ===== Other Popular CMS =====
+        
+        # Ghost - Modern blog platform
+        "Ghost": {
+            "paths": ["/ghost/", "/content/themes/"],
+            "headers": {},
+            "body_patterns": ["ghost", "ghost.org"],
+            "meta_tags": ["generator.*Ghost"],
+            "cookies": ["ghost"]
+        },
+        
+        # Hexo - Static site generator
+        "Hexo": {
+            "paths": [],
+            "headers": {},
+            "body_patterns": ["Hexo", "hexo.io"],
+            "meta_tags": ["generator.*Hexo"],
+            "cookies": []
+        },
+        
+        # Hugo - Static site generator
+        "Hugo": {
+            "paths": [],
+            "headers": {},
+            "body_patterns": ["Hugo", "gohugo.io"],
+            "meta_tags": ["generator.*Hugo"],
+            "cookies": []
+        },
+        
+        # Jekyll - Static site generator
+        "Jekyll": {
+            "paths": [],
+            "headers": {},
+            "body_patterns": ["Jekyll", "jekyllrb.com"],
+            "meta_tags": ["generator.*Jekyll"],
+            "cookies": []
         },
         
         # Frameworks
@@ -151,6 +303,10 @@ class FingerprintScanner:
             Dictionary with status, headers, body, and cookies
         """
         try:
+            # Debug: Print actual request URL
+            import sys
+            print(f"[DEBUG] Making request to: {url}", file=sys.stderr)
+            
             # Create SSL context that doesn't verify certificates (for testing)
             ctx = ssl.create_default_context()
             ctx.check_hostname = False
@@ -257,6 +413,10 @@ class FingerprintScanner:
         Returns:
             Dictionary with scan results
         """
+        # Debug: Print the target URL being scanned
+        import sys
+        print(f"[DEBUG] Scanning target: {self.target}", file=sys.stderr)
+        
         # First, request the main page
         main_response = self._make_request(self.target)
         
@@ -316,8 +476,14 @@ class FingerprintScanner:
         }
     
     def _get_tech_type(self, name: str) -> str:
-        """Get technology type"""
-        cms = ["WordPress", "Joomla", "Drupal"]
+        """Get technology type (Enhanced with more CMS categories)"""
+        cms = [
+            "WordPress", "Joomla", "Drupal",  # International CMS
+            "Discuz", "DedeCMS", "PHPCMS", "EmpireCMS", "Typecho", "Z-Blog",  # Chinese CMS
+            "Shopify", "Magento", "WooCommerce",  # E-commerce
+            "phpBB", "vBulletin",  # Forum
+            "Ghost", "Hexo", "Hugo", "Jekyll"  # Blog/Static
+        ]
         frameworks = ["Laravel", "Django", "Flask", "Express", "Spring", "ASP.NET"]
         servers = ["Nginx", "Apache", "IIS"]
         frontend = ["React", "Vue.js", "jQuery", "Bootstrap"]

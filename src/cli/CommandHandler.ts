@@ -180,6 +180,16 @@ export class CommandHandler {
                         if (vuln.score) {
                           displayResult += `  CVSS: ${vuln.score}\n`;
                         }
+                        
+                        // Highlight if public exploit exists (searchsploit-like feature)
+                        if (vuln.has_exploit || vuln.exploit_available) {
+                          displayResult += chalk.red(`  ⚠️  公开Exploit存在`);
+                          if (vuln.exploit_type) {
+                            displayResult += ` (${vuln.exploit_type})`;
+                          }
+                          displayResult += `\n`;
+                          displayResult += chalk.yellow(`  🔗 搜索Exploit: https://www.exploit-db.com/search?cve=${vuln.cve_id}\n`);
+                        }
                       });
                       
                       displayResult += '\n';
@@ -258,12 +268,16 @@ export class CommandHandler {
                     displayResult += '  未能识别具体框架或技术栈\n';
                   }
                   
-                  aiContext = `目标 ${intent.target} 的技术栈扫描结果：`;
+                  // 明确说明当前查询的目标，避免与历史对话混淆
+                  const targetWithoutPort = intent.target.replace(/:\d+\/?$/, '/'); // 移除端口号显示
+                  aiContext = `当前查询目标：${intent.target}\n`;
+                  aiContext += `技术栈扫描结果：`;
                   if (fpData.technologies && fpData.technologies.length > 0) {
                     aiContext += `检测到 ${fpData.total_detected} 种技术，包括 ${fpData.technologies.map((t: any) => t.name).join(', ')}。`;
                   } else {
                     aiContext += '未能识别具体技术。';
                   }
+                  aiContext += `\n\n注意：本次查询仅进行了技术栈识别，未进行端口扫描。`;
                 }
               }
               else {
@@ -283,8 +297,8 @@ export class CommandHandler {
                 aiPrompt = `${aiContext}\n\n请简要分析：\n1. 漏洞的严重程度和紧急程度\n2. 这些漏洞可能带来的实际威胁\n3. 给出修复优先级建议\n\n请用中文回复，3-4句话即可，专业且易懂。`;
               } else if (intent.intent === 'port') {
                 aiPrompt = `${aiContext}\n\n请简要分析：\n1. 这些端口是否存在安全风险\n2. 哪些端口需要特别注意\n3. 给出2-3条安全建议\n\n请用中文回复，2-3句话即可，不要重复列举端口。`;
-              } else if (intent.intent === 'framework') {
-                aiPrompt = `${aiContext}\n\n请简要分析：\n1. 技术栈是否合理\n2. 是否有已知的安全隐患\n3. 简短的安全建议\n\n请用中文回复，2-3句话即可。`;
+              } else if (intent.intent === 'framework' || intent.intent === 'cms') {
+                aiPrompt = `${aiContext}\n\n请简要分析：\n1. 技术栈是否合理\n2. 是否有已知的安全隐患\n3. 简短的安全建议\n\n重要提示：本次查询ONLY关注技术栈/CMS识别，不涉及端口扫描。请不要提及端口信息。\n\n请用中文回复，2-3句话即可。`;
               } else {
                 aiPrompt = `${aiContext}\n\n请综合分析扫描结果，给出安全评估和建议。用中文回复，保持简洁。`;
               }

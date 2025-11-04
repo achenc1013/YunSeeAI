@@ -49,14 +49,31 @@ Response format:
 export function parseIntent(userMessage) {
   const message = userMessage.toLowerCase();
   
-  // Extract target (URL, hostname, or IP)
-  const urlPattern = /(?:https?:\/\/)?(?:[\w-]+\.)+[\w-]+(?:\/[\w-]*)?/gi;
+  // Extract target (URL, hostname, or IP with optional port)
+  // Enhanced patterns to support ports and trailing slashes
+  const ipWithPortPattern = /(?:https?:\/\/)?(?:\d{1,3}\.){3}\d{1,3}:\d+(?:\/[^\s]*)?/g;
+  const urlPattern = /(?:https?:\/\/)?(?:[\w-]+\.)+[\w-]+(?::\d+)?(?:\/[^\s]*)?/gi;
   const ipPattern = /\b(?:\d{1,3}\.){3}\d{1,3}\b/g;
   
-  const urlMatches = userMessage.match(urlPattern);
-  const ipMatches = userMessage.match(ipPattern);
+  // Try to match IP with port first (most specific)
+  let target = userMessage.match(ipWithPortPattern)?.[0];
   
-  const target = urlMatches?.[0] || ipMatches?.[0] || null;
+  // If no IP with port, try regular URL pattern
+  if (!target) {
+    const urlMatches = userMessage.match(urlPattern);
+    target = urlMatches?.[0];
+  }
+  
+  // If still no match, try IP without port
+  if (!target) {
+    const ipMatches = userMessage.match(ipPattern);
+    target = ipMatches?.[0];
+  }
+  
+  // Clean up trailing slash if it's just a slash
+  if (target && target.endsWith('/') && !target.match(/\/[^\/]+\/$/)) {
+    // Keep the trailing slash as it's part of the URL
+  }
   
   if (!target) {
     return {
@@ -69,7 +86,8 @@ export function parseIntent(userMessage) {
   const keywords = {
     vulnerability: ['vulnerability', 'vulnerabilities', 'cve', 'exploit', 'security issue', 'security flaw', '漏洞', '安全漏洞', '安全问题', 'CVE'],
     port: ['port', 'ports', 'open port', 'service', 'services', '端口', '开放'],
-    framework: ['framework', 'cms', 'technology', 'technologies', 'stack', 'built with', 'using', 'powered by', '框架', '技术', '用的', '使用'],
+    framework: ['framework', 'cms', 'technology', 'technologies', 'stack', 'built with', 'using', 'powered by', '框架', '技术', '用的', '使用', 'CMS', '内容管理系统'],
+    cms: ['cms', 'CMS', '内容管理系统', 'content management'],  // Dedicated CMS keywords
     full: ['全面', 'full scan', 'complete scan', 'everything', '全部', '完整']
   };
   
@@ -79,6 +97,10 @@ export function parseIntent(userMessage) {
   // Highest priority: Vulnerability/CVE queries
   if (keywords.vulnerability.some(kw => message.includes(kw))) {
     intent = 'vulnerability';
+  }
+  // Check for explicit CMS requests (high priority)
+  else if (keywords.cms.some(kw => message.includes(kw))) {
+    intent = 'cms';
   }
   // Check for explicit full scan requests
   else if (keywords.full.some(kw => message.includes(kw))) {
@@ -110,6 +132,7 @@ export function parseIntent(userMessage) {
     vulnerability: 'scan_vulnerabilities',
     port: 'scan_ports',
     framework: 'scan_fingerprint',
+    cms: 'scan_fingerprint',  // CMS queries use fingerprint scanning
     full: 'scan_full'
   };
   
@@ -245,6 +268,15 @@ function generateResponse(intent, scanResult, formattedResults) {
           if (vuln.score) {
             response += `  CVSS评分: ${vuln.score}\n`;
           }
+          
+          // Highlight exploit availability (searchsploit-like)
+          if (vuln.has_exploit || vuln.exploit_available) {
+            response += `  ⚠️ 公开Exploit存在`;
+            if (vuln.exploit_type) {
+              response += ` (${vuln.exploit_type})`;
+            }
+            response += ` - 威胁级别提升！\n`;
+          }
         });
         
         response += '\n';
@@ -301,6 +333,78 @@ function generateResponse(intent, scanResult, formattedResults) {
       }
     } else {
       response += `未检测到开放端口（扫描范围：常见端口）。\n`;
+    }
+  }
+  else if (intent.intent === 'cms') {
+    // CMS-specific output format
+    const fpData = scanResult.fingerprint_scan || scanResult;
+    
+    if (fpData.technologies && fpData.technologies.length > 0) {
+      const cmsItems = fpData.technologies.filter(tech => tech.type === 'CMS');
+      
+      if (cmsItems.length > 0) {
+        response += `🎯 CMS识别结果：\n\n`;
+        
+        cmsItems.forEach(cms => {
+          response += `✅ ${cms.name}\n`;
+          response += `   置信度: ${cms.confidence}\n`;
+          if (cms.version && cms.version !== 'detected') {
+            response += `   版本: ${cms.version}\n`;
+          }
+          if (cms.detected_path) {
+            response += `   特征路径: ${cms.detected_path}\n`;
+          }
+          response += '\n';
+        });
+        
+        // Show other related technologies
+        const otherTech = fpData.technologies.filter(tech => tech.type !== 'CMS');
+        if (otherTech.length > 0) {
+          response += `📦 相关技术栈：\n`;
+          const byType = {};
+          otherTech.forEach(tech => {
+            if (!byType[tech.type]) byType[tech.type] = [];
+            byType[tech.type].push(tech);
+          });
+          
+          Object.entries(byType).forEach(([type, techs]) => {
+            response += `  ${type}: ${techs.map(t => t.name).join(', ')}\n`;
+          });
+        }
+      } else {
+        response += `未检测到CMS系统，但发现其他技术栈：\n\n`;
+        
+        const byType = {};
+        fpData.technologies.forEach(tech => {
+          if (!byType[tech.type]) byType[tech.type] = [];
+          byType[tech.type].push(tech);
+        });
+        
+        Object.entries(byType).forEach(([type, techs]) => {
+          response += `【${type}】\n`;
+          techs.forEach(tech => {
+            response += `  • ${tech.name}\n`;
+          });
+          response += '\n';
+        });
+        
+        response += `💡 提示: 目标网站可能使用了自定义开发或静态页面。\n`;
+      }
+      
+      // Add server info if available
+      if (fpData.server_info && Object.keys(fpData.server_info).length > 0) {
+        response += `\n🖥️  服务器信息：\n`;
+        Object.entries(fpData.server_info).forEach(([key, value]) => {
+          response += `  • ${key}: ${value}\n`;
+        });
+      }
+    } else {
+      response += `❌ 未能识别CMS系统。\n\n`;
+      response += `可能原因：\n`;
+      response += `  • 使用了自定义开发而非CMS\n`;
+      response += `  • 启用了指纹隐藏保护\n`;
+      response += `  • 目标网站配置了高级安全防护\n`;
+      response += `  • 静态网站生成器或单页应用\n`;
     }
   }
   else if (intent.intent === 'framework') {

@@ -3,7 +3,7 @@
  * Defines available tools for AI to call
  */
 
-import { scanPorts, scanFingerprint, scanFull } from './scanner-client.js';
+import { scanPorts, scanFingerprint, scanFull, scanVulnerabilities } from './scanner-client.js';
 
 /**
  * Available tools for AI function calling
@@ -88,6 +88,30 @@ export const SCANNER_TOOLS = [
     handler: async (args) => {
       const { target, ports = 'common', timeout = 10 } = args;
       return await scanFull(target, { ports, timeout });
+    }
+  },
+  
+  {
+    name: 'scan_vulnerabilities',
+    description: 'Scan for known vulnerabilities (CVEs) based on detected technologies. Use this when user asks about vulnerabilities, security issues, or CVEs. Automatically performs fingerprint scan if needed.',
+    parameters: {
+      type: 'object',
+      properties: {
+        target: {
+          type: 'string',
+          description: 'Target URL to scan for vulnerabilities (e.g., https://example.com)'
+        },
+        online: {
+          type: 'boolean',
+          description: 'Enable online CVE database queries for more accurate results (default: true)',
+          default: true
+        }
+      },
+      required: ['target']
+    },
+    handler: async (args) => {
+      const { target, online = true } = args;
+      return await scanVulnerabilities(target, null, online);
     }
   }
 ];

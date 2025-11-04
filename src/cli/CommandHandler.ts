@@ -89,7 +89,8 @@ export class CommandHandler {
       const scanKeywords = [
         'scan', 'port', 'ports', 'framework', 'technology', 'technologies',
         'fingerprint', 'website', 'open', 'service', 'services',
-        '扫描', '端口', '框架', '技术', '网站', '开放'
+        'vulnerability', 'vulnerabilities', 'cve', 'exploit', 'security issue',
+        '扫描', '端口', '框架', '技术', '网站', '开放', '漏洞', '安全漏洞', '安全问题'
       ];
       
       const isScanRequest = scanKeywords.some(kw => lowerInput.includes(kw));
@@ -118,7 +119,88 @@ export class CommandHandler {
               let displayResult = '';
               let aiContext = '';
               
-              if (intent.intent === 'port') {
+              if (intent.intent === 'vulnerability') {
+                // Only show vulnerability scan results
+                const vulnData = scanResult.raw_results;
+                if (vulnData.success) {
+                  displayResult += `目标: ${vulnData.target}\n`;
+                  displayResult += `扫描模式: ${vulnData.scan_mode || '本地+在线'}\n\n`;
+                  
+                  if (vulnData.total_vulnerabilities > 0) {
+                    displayResult += `发现漏洞: ${vulnData.total_vulnerabilities} 个\n\n`;
+                    
+                    // Group by severity
+                    const bySeverity: any = {
+                      'Critical': [],
+                      'High': [],
+                      'Medium': [],
+                      'Low': [],
+                      'Unknown': []
+                    };
+                    
+                    vulnData.vulnerabilities.forEach((vuln: any) => {
+                      const severity = vuln.severity || 'Unknown';
+                      if (!bySeverity[severity]) bySeverity[severity] = [];
+                      bySeverity[severity].push(vuln);
+                    });
+                    
+                    // Display by severity
+                    for (const [severity, vulns] of Object.entries(bySeverity) as [string, any[]][]) {
+                      if (vulns.length === 0) continue;
+                      
+                      const severityIcon: any = {
+                        'Critical': '🔴',
+                        'High': '🟠',
+                        'Medium': '🟡',
+                        'Low': '🟢',
+                        'Unknown': '⚪'
+                      };
+                      
+                      displayResult += `${severityIcon[severity]} ${severity} 级别 (${vulns.length}):\n`;
+                      
+                      vulns.forEach((vuln: any) => {
+                        displayResult += `\n  【${vuln.cve_id}】\n`;
+                        displayResult += `  组件: ${vuln.technology}`;
+                        if (vuln.affected_version && vuln.affected_version !== 'unknown') {
+                          displayResult += ` ${vuln.affected_version}`;
+                        }
+                        displayResult += '\n';
+                        
+                        if (vuln.description) {
+                          const desc = vuln.description.length > 100 
+                            ? vuln.description.substring(0, 100) + '...' 
+                            : vuln.description;
+                          displayResult += `  描述: ${desc}\n`;
+                        }
+                        
+                        if (vuln.impact) {
+                          displayResult += `  影响: ${vuln.impact}\n`;
+                        }
+                        
+                        if (vuln.score) {
+                          displayResult += `  CVSS: ${vuln.score}\n`;
+                        }
+                      });
+                      
+                      displayResult += '\n';
+                    }
+                  } else {
+                    displayResult += '  ✓ 未发现已知漏洞\n';
+                  }
+                  
+                  aiContext = `目标 ${intent.target} 的漏洞扫描结果：`;
+                  if (vulnData.total_vulnerabilities > 0) {
+                    aiContext += `发现 ${vulnData.total_vulnerabilities} 个已知漏洞（CVE）。`;
+                    const criticalCount = vulnData.vulnerabilities.filter((v: any) => v.severity === 'Critical').length;
+                    const highCount = vulnData.vulnerabilities.filter((v: any) => v.severity === 'High').length;
+                    if (criticalCount > 0) aiContext += `其中 ${criticalCount} 个严重漏洞。`;
+                    if (highCount > 0) aiContext += `其中 ${highCount} 个高危漏洞。`;
+                  } else {
+                    aiContext += '未发现已知漏洞。';
+                  }
+                }
+              }
+              else if (intent.intent === 'port') {
                 // Only show port scan results
                 const portData = scanResult.raw_results.port_scan || scanResult.raw_results;
                 if (portData.success) {
@@ -197,7 +279,9 @@ export class CommandHandler {
               process.stdout.write(chalk.blue('🤖 YunSeeAI 分析:\n'));
               
               let aiPrompt = '';
-              if (intent.intent === 'port') {
+              if (intent.intent === 'vulnerability') {
+                aiPrompt = `${aiContext}\n\n请简要分析：\n1. 漏洞的严重程度和紧急程度\n2. 这些漏洞可能带来的实际威胁\n3. 给出修复优先级建议\n\n请用中文回复，3-4句话即可，专业且易懂。`;
+              } else if (intent.intent === 'port') {
                 aiPrompt = `${aiContext}\n\n请简要分析：\n1. 这些端口是否存在安全风险\n2. 哪些端口需要特别注意\n3. 给出2-3条安全建议\n\n请用中文回复，2-3句话即可，不要重复列举端口。`;
               } else if (intent.intent === 'framework') {
                 aiPrompt = `${aiContext}\n\n请简要分析：\n1. 技术栈是否合理\n2. 是否有已知的安全隐患\n3. 简短的安全建议\n\n请用中文回复，2-3句话即可。`;

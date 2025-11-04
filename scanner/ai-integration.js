@@ -67,29 +67,33 @@ export function parseIntent(userMessage) {
   
   // Determine intent - be specific and precise
   const keywords = {
+    vulnerability: ['vulnerability', 'vulnerabilities', 'cve', 'exploit', 'security issue', 'security flaw', '漏洞', '安全漏洞', '安全问题', 'CVE'],
     port: ['port', 'ports', 'open port', 'service', 'services', '端口', '开放'],
     framework: ['framework', 'cms', 'technology', 'technologies', 'stack', 'built with', 'using', 'powered by', '框架', '技术', '用的', '使用'],
     full: ['全面', 'full scan', 'complete scan', 'everything', '全部', '完整']
   };
   
-  // More intelligent intent detection
+  // More intelligent intent detection with priority
   let intent = null;
   
+  // Highest priority: Vulnerability/CVE queries
+  if (keywords.vulnerability.some(kw => message.includes(kw))) {
+    intent = 'vulnerability';
+  }
   // Check for explicit full scan requests
-  if (keywords.full.some(kw => message.includes(kw))) {
+  else if (keywords.full.some(kw => message.includes(kw))) {
     intent = 'full';
   }
-  // Check for port-specific requests (high priority)
+  // Check for port-specific requests
   else if (keywords.port.some(kw => message.includes(kw))) {
     intent = 'port';
   }
-  // Check for framework/technology requests (high priority)
+  // Check for framework/technology requests
   else if (keywords.framework.some(kw => message.includes(kw))) {
     intent = 'framework';
   }
-  // Generic "scan" without specifics - ask user or default to port scan
+  // Generic "scan" without specifics - default to port scan
   else if (message.includes('scan') || message.includes('扫描')) {
-    // If just "scan", default to port scan (most common need)
     intent = 'port';
   }
   
@@ -97,12 +101,13 @@ export function parseIntent(userMessage) {
   if (!intent) {
     return {
       success: false,
-      error: 'Could not determine scan intent. Please specify what you want to scan (ports, framework, or full scan).'
+      error: 'Could not determine scan intent. Please specify what you want to scan (ports, framework, vulnerabilities, or full scan).'
     };
   }
   
   // Map intent to tool
   const toolMap = {
+    vulnerability: 'scan_vulnerabilities',
     port: 'scan_ports',
     framework: 'scan_fingerprint',
     full: 'scan_full'
@@ -183,7 +188,93 @@ export async function processQuery(userMessage) {
 function generateResponse(intent, scanResult, formattedResults) {
   let response = '';
   
-  if (intent.intent === 'port') {
+  if (intent.intent === 'vulnerability') {
+    const vulnData = scanResult;
+    
+    if (vulnData.total_vulnerabilities > 0) {
+      response += `发现 ${vulnData.total_vulnerabilities} 个已知漏洞：\n\n`;
+      
+      // Group by severity
+      const bySeverity = {
+        'Critical': [],
+        'High': [],
+        'Medium': [],
+        'Low': [],
+        'Unknown': []
+      };
+      
+      vulnData.vulnerabilities.forEach(vuln => {
+        const severity = vuln.severity || 'Unknown';
+        if (!bySeverity[severity]) bySeverity[severity] = [];
+        bySeverity[severity].push(vuln);
+      });
+      
+      // Display by severity
+      for (const [severity, vulns] of Object.entries(bySeverity)) {
+        if (vulns.length === 0) continue;
+        
+        const severityIcon = {
+          'Critical': '🔴',
+          'High': '🟠',
+          'Medium': '🟡',
+          'Low': '🟢',
+          'Unknown': '⚪'
+        }[severity];
+        
+        response += `${severityIcon} ${severity} 级别 (${vulns.length}):\n`;
+        
+        vulns.forEach(vuln => {
+          response += `\n  【${vuln.cve_id}】\n`;
+          response += `  影响组件: ${vuln.technology}`;
+          if (vuln.affected_version) {
+            response += ` ${vuln.affected_version}`;
+          }
+          response += '\n';
+          
+          if (vuln.description) {
+            const desc = vuln.description.length > 100 
+              ? vuln.description.substring(0, 100) + '...' 
+              : vuln.description;
+            response += `  描述: ${desc}\n`;
+          }
+          
+          if (vuln.impact) {
+            response += `  影响: ${vuln.impact}\n`;
+          }
+          
+          if (vuln.score) {
+            response += `  CVSS评分: ${vuln.score}\n`;
+          }
+        });
+        
+        response += '\n';
+      }
+      
+      // Add recommendations
+      const criticalCount = bySeverity['Critical'].length;
+      const highCount = bySeverity['High'].length;
+      
+      if (criticalCount > 0 || highCount > 0) {
+        response += `\n⚠️ 安全建议:\n`;
+        if (criticalCount > 0) {
+          response += `  • 发现 ${criticalCount} 个严重漏洞，建议立即修复\n`;
+        }
+        if (highCount > 0) {
+          response += `  • 发现 ${highCount} 个高危漏洞，建议尽快处理\n`;
+        }
+        response += `  • 建议更新受影响的组件到安全版本\n`;
+        response += `  • 可以访问 https://nvd.nist.gov/vuln/detail/[CVE-ID] 查看详情\n`;
+      }
+      
+    } else {
+      response += `未发现已知漏洞。\n\n`;
+      response += `说明：\n`;
+      response += `  • 基于当前检测到的技术栈进行了CVE匹配\n`;
+      response += `  • 未发现匹配的已知漏洞记录\n`;
+      response += `  • 这并不意味着完全安全，建议定期更新组件\n`;
+    }
+  }
+  else if (intent.intent === 'port') {
     const portData = scanResult.port_scan || scanResult;
     
     if (portData.total_open > 0) {

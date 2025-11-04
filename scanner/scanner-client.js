@@ -129,6 +129,44 @@ export async function scanFull(target, options = {}) {
 }
 
 /**
+ * Scan for vulnerabilities (CVEs) based on fingerprint data
+ * @param {string} target - Target URL
+ * @param {Object} fingerprintData - Fingerprint scan results (optional, will scan if not provided)
+ * @param {boolean} online - Enable online CVE queries (default: true)
+ * @returns {Promise<Object>} - CVE scan results
+ */
+export async function scanVulnerabilities(target, fingerprintData = null, online = true) {
+  try {
+    // If no fingerprint data, scan first
+    if (!fingerprintData) {
+      fingerprintData = await scanFingerprint(target);
+      if (!fingerprintData.success) {
+        return {
+          success: false,
+          error: 'Failed to get fingerprint data: ' + fingerprintData.error,
+          target
+        };
+      }
+    }
+    
+    // Prepare arguments
+    const args = [JSON.stringify(fingerprintData)];
+    if (!online) {
+      args.push('--offline');
+    }
+    
+    const result = await executePythonScript('cve_scanner.py', args);
+    return result;
+  } catch (error) {
+    return {
+      success: false,
+      error: error.message,
+      target
+    };
+  }
+}
+
+/**
  * Format scan results for AI consumption
  * @param {Object} scanResult - Raw scan results
  * @returns {string} - Formatted text summary
@@ -202,6 +240,7 @@ export default {
   scanPorts,
   scanFingerprint,
   scanFull,
+  scanVulnerabilities,
   formatScanResults
 };
 

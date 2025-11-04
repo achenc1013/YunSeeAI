@@ -4,6 +4,11 @@
 
 import { AssistantService } from '../ai/AssistantService.js';
 import chalk from 'chalk';
+// Import scanner functionality
+// @ts-ignore - Scanner module is pure JS
+import { parseIntent, processQuery } from '../../scanner/ai-integration.js';
+// @ts-ignore - Scanner module is pure JS
+import { formatScanResults } from '../../scanner/scanner-client.js';
 
 export class CommandHandler {
   private assistant: AssistantService;
@@ -80,11 +85,156 @@ export class CommandHandler {
         return 'EXIT';
       }
 
-      // Send to AI for processing
-      let response = '';
+      // Check if this is a scanning request
+      const scanKeywords = [
+        'scan', 'port', 'ports', 'framework', 'technology', 'technologies',
+        'fingerprint', 'website', 'open', 'service', 'services',
+        '扫描', '端口', '框架', '技术', '网站', '开放'
+      ];
+      
+      const isScanRequest = scanKeywords.some(kw => lowerInput.includes(kw));
+      
+      if (isScanRequest) {
+        // Try to parse as scan intent
+        const intent = parseIntent(input);
+        
+        if (intent.success && intent.target) {
+          // This is a valid scan request - execute it
+          process.stdout.write(chalk.yellow('\n🔍 检测到扫描请求，正在执行扫描...\n'));
+          process.stdout.write(chalk.gray(`   目标: ${intent.target}\n`));
+          process.stdout.write(chalk.gray(`   类型: ${intent.intent}\n\n`));
+          
+          try {
+            // Execute the scan
+            const scanResult = await processQuery(input);
+            
+            if (scanResult.success) {
+              // Show scan results
+              process.stdout.write(chalk.green('✓ 扫描完成！\n\n'));
+              process.stdout.write(chalk.cyan('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n'));
+              process.stdout.write(chalk.bold('📊 扫描结果:\n\n'));
+              
+              // Display ONLY what user asked for
+              let displayResult = '';
+              let aiContext = '';
+              
+              if (intent.intent === 'port') {
+                // Only show port scan results
+                const portData = scanResult.raw_results.port_scan || scanResult.raw_results;
+                if (portData.success) {
+                  displayResult += `目标: ${portData.target} (${portData.target_ip || 'N/A'})\n`;
+                  displayResult += `开放端口: ${portData.total_open}/${portData.total_scanned}\n\n`;
+                  
+                  if (portData.open_ports && portData.open_ports.length > 0) {
+                    portData.open_ports.forEach((port: any) => {
+                      displayResult += `  • 端口 ${port.port} (${port.service}) - ${port.state}\n`;
+                      if (port.banner) {
+                        displayResult += `    Banner: ${port.banner.substring(0, 60)}${port.banner.length > 60 ? '...' : ''}\n`;
+                      }
+                    });
+                  } else {
+                    displayResult += '  未发现开放端口\n';
+                  }
+                  
+                  aiContext = `目标 ${intent.target} 的端口扫描结果：发现 ${portData.total_open} 个开放端口。`;
+                  if (portData.open_ports && portData.open_ports.length > 0) {
+                    aiContext += `开放端口包括：${portData.open_ports.map((p: any) => `${p.port}(${p.service})`).join(', ')}。`;
+                  }
+                }
+              } 
+              else if (intent.intent === 'framework') {
+                // Only show fingerprint results
+                const fpData = scanResult.raw_results.fingerprint_scan || scanResult.raw_results;
+                if (fpData.success) {
+                  displayResult += `目标: ${fpData.target}\n\n`;
+                  
+                  if (fpData.server_info && Object.keys(fpData.server_info).length > 0) {
+                    displayResult += `服务器信息:\n`;
+                    Object.entries(fpData.server_info).forEach(([key, value]) => {
+                      displayResult += `  • ${key}: ${value}\n`;
+                    });
+                    displayResult += '\n';
+                  }
+                  
+                  if (fpData.technologies && fpData.technologies.length > 0) {
+                    displayResult += `检测到的技术 (${fpData.total_detected}):\n`;
+                    
+                    // Group by type
+                    const byType: any = {};
+                    fpData.technologies.forEach((tech: any) => {
+                      if (!byType[tech.type]) byType[tech.type] = [];
+                      byType[tech.type].push(tech);
+                    });
+                    
+                    Object.entries(byType).forEach(([type, techs]: [string, any]) => {
+                      displayResult += `\n  【${type}】\n`;
+                      techs.forEach((tech: any) => {
+                        displayResult += `    • ${tech.name} (置信度: ${tech.confidence})\n`;
+                      });
+                    });
+                  } else {
+                    displayResult += '  未能识别具体框架或技术栈\n';
+                  }
+                  
+                  aiContext = `目标 ${intent.target} 的技术栈扫描结果：`;
+                  if (fpData.technologies && fpData.technologies.length > 0) {
+                    aiContext += `检测到 ${fpData.total_detected} 种技术，包括 ${fpData.technologies.map((t: any) => t.name).join(', ')}。`;
+                  } else {
+                    aiContext += '未能识别具体技术。';
+                  }
+                }
+              }
+              else {
+                // Full scan - show everything
+                displayResult = formatScanResults(scanResult.raw_results);
+                aiContext = `完整扫描了 ${intent.target}，包含端口和技术栈信息。`;
+              }
+              
+              process.stdout.write(displayResult + '\n');
+              process.stdout.write(chalk.cyan('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n'));
+              
+              // Let AI provide additional insights based on what was scanned
+              process.stdout.write(chalk.blue('🤖 YunSeeAI 分析:\n'));
+              
+              let aiPrompt = '';
+              if (intent.intent === 'port') {
+                aiPrompt = `${aiContext}\n\n请简要分析：\n1. 这些端口是否存在安全风险\n2. 哪些端口需要特别注意\n3. 给出2-3条安全建议\n\n请用中文回复，2-3句话即可，不要重复列举端口。`;
+              } else if (intent.intent === 'framework') {
+                aiPrompt = `${aiContext}\n\n请简要分析：\n1. 技术栈是否合理\n2. 是否有已知的安全隐患\n3. 简短的安全建议\n\n请用中文回复，2-3句话即可。`;
+              } else {
+                aiPrompt = `${aiContext}\n\n请综合分析扫描结果，给出安全评估和建议。用中文回复，保持简洁。`;
+              }
+              
+              await this.assistant.sendMessage(aiPrompt, (token) => {
+                process.stdout.write(token);
+              });
+              
+              console.log('\n');
+              return '';
+            } else {
+              process.stdout.write(chalk.red(`✗ 扫描失败: ${scanResult.error}\n\n`));
+              
+              // Ask AI for help
+              process.stdout.write(chalk.blue('🤖 YunSeeAI: '));
+              await this.assistant.sendMessage(
+                `用户尝试扫描但失败了，错误信息：${scanResult.error}。请帮助用户理解问题并提供建议。`,
+                (token) => {
+                  process.stdout.write(token);
+                }
+              );
+              console.log('\n');
+              return '';
+            }
+          } catch (scanError) {
+            process.stdout.write(chalk.red(`✗ 扫描出错: ${scanError}\n\n`));
+          }
+        }
+      }
+
+      // Not a scan request or failed to parse - send to AI normally
       process.stdout.write(chalk.blue('\n🤖 YunSeeAI: '));
       
-      response = await this.assistant.sendMessage(input, (token) => {
+      await this.assistant.sendMessage(input, (token) => {
         process.stdout.write(token);
       });
 
@@ -128,8 +278,15 @@ ${chalk.bold('Tips:')}
 ${chalk.bold('Module Status:')}
   🛡️  AI Assistant    - Active
   🔒 WAF Module       - Available (use: "enable waf")
-  🔍 Scanner Module   - Available (use: "scan ports")
+  🔍 Scanner Module   - Active (自动识别扫描请求)
   ⚙️  Audit Module    - Available (use: "audit config")
+
+${chalk.bold('Scanner Examples (扫描示例):')}
+  What ports are open on example.com?
+  What framework does https://example.com use?
+  扫描 example.com
+  请告诉我 http://example.com 开放了哪些端口
+  我想知道 https://github.com 用的什么框架
 `);
   }
 

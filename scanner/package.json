@@ -1,0 +1,36 @@
+{
+  "name": "@yunseeai/scanner",
+  "version": "1.0.0",
+  "description": "YunSeeAI Asset Scanner - Intelligent port scanning and fingerprint detection",
+  "type": "module",
+  "main": "scanner-client.js",
+  "scripts": {
+    "test": "node example-usage.js",
+    "scan:port": "python port_scanner.py",
+    "scan:fingerprint": "python fingerprint.py",
+    "scan:full": "python scanner_main.py",
+    "example": "node example-usage.js"
+  },
+  "keywords": [
+    "security",
+    "scanner",
+    "port-scan",
+    "fingerprint",
+    "asset-discovery",
+    "nmap",
+    "ai",
+    "yunseeai"
+  ],
+  "author": "YunSeeAI Team",
+  "license": "MIT",
+  "engines": {
+    "node": ">=14.0.0",
+    "python": ">=3.13.0"
+  },
+  "exports": {
+    ".": "./scanner-client.js",
+    "./tools": "./tools-registry.js",
+    "./ai": "./ai-integration.js"
+  }
+}
+

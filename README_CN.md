@@ -72,7 +72,7 @@ YunSeeAI是一个面向个人开发者的创新开源网络安全项目。它结
 
 模型文件已存在：
 ```
-DeepSeek-R1-0528-Qwen3-8B-Q4_K_M.gguf (约4.7GB)
+YunSee(deepseek).gguf (约4.7GB)
 ```
 
 #### 2. 启动应用
@@ -362,5 +362,4 @@ npm start
 [⬆ 回到顶部](#yunseeai---ai驱动的安全助手)
 
 </div>
-
 

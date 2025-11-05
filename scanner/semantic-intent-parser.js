@@ -81,9 +81,10 @@ const SEMANTIC_PATTERNS = {
       /cms.*(?:using|used|is)/i,
       /content\s+management/i,
       
-      // Chinese
-      /(?:哪个|什么).*cms/i,
-      /cms.*(?:用|使用|是)/,
+      // Chinese - 更宽松的模式
+      /(?:哪个|什么|啥).*cms/i,  // "啥cms", "什么cms"
+      /cms.*(?:用|使用|是|啥|什么|哪个)/,  // "cms用的啥"
+      /(?:用了|用的|用着|使用了).*(?:啥|什么).*cms/i,  // "用的啥cms"
       /内容管理系统/
     ],
     
@@ -101,9 +102,10 @@ const SEMANTIC_PATTERNS = {
       /(?:framework|technology|stack).*(?:using|used)/i,
       /tech\s+stack/i,
       
-      // Chinese
-      /(?:哪个|什么).*(?:框架|技术)/,
-      /(?:框架|技术).*(?:用|使用)/,
+      // Chinese - 更宽松的模式
+      /(?:哪个|什么|啥).*(?:框架|技术)/,  // "啥框架"
+      /(?:框架|技术).*(?:用|使用|啥|什么)/,  // "框架用的啥"
+      /(?:用了|用的|用着|使用了).*(?:啥|什么).*(?:框架|技术)/,  // "用的啥框架"
       /技术栈/
     ]
   },
@@ -123,13 +125,60 @@ const SEMANTIC_PATTERNS = {
     ],
     
     questions: [
-      /(?:any|exist|have).*vulnerabilit/i,
+      /(?:any|exist|have|find|check).*vulnerabilit/i,
       /is.*vulnerable/i,
       /security\s+problems?/i,
+      /vulnerabilit.*(?:exist|present|found)/i,
+      
+      // CVE specific questions
+      /(?:any|exist|have|find).*cve/i,
+      /cve.*(?:exist|present|found)/i,
       
       // Chinese
-      /(?:有|存在).*漏洞/,
-      /是否.*漏洞/
+      /(?:有|存在|有没有|是否有|是否存在).*漏洞/,
+      /(?:有|存在|有没有|是否有|是否存在).*cve/i,
+      /是否.*漏洞/,
+      /漏洞.*(?:有|存在|吗)/,
+      /cve.*(?:有|存在|吗)/i
+    ]
+  },
+  
+  // Security audit patterns
+  security_audit: {
+    direct: [
+      /security\s+audit/i,
+      /security\s+check/i,
+      /system\s+security/i,
+      /check\s+security/i,
+      /安全检查/,
+      /安全审计/,
+      /系统安全/,
+      /安全扫描/,
+      
+      // Attack detection
+      /(?:detect|check|find).*(?:attack|brute\s*force|intrusion)/i,
+      /(?:检测|发现|查找).*(?:攻击|入侵)/,
+      /检测.*暴力破解/,
+      /暴力破解.*检测/,
+      
+      // Config check
+      /(?:check|audit|review).*config/i,
+      /(?:检查|审计|查看).*配置/,
+      
+      // Log analysis
+      /(?:analyze|check|scan).*(?:log|日志)/i,
+      /(?:分析|检查|扫描).*日志/,
+      
+      // Auto-ban
+      /(?:ban|block|封禁|拦截).*(?:ip|攻击)/i
+    ],
+    
+    questions: [
+      /is\s+(?:my\s+)?system\s+secure/i,
+      /any\s+attacks?/i,
+      /(?:系统|服务器).*(?:安全|攻击)/,
+      /有.*(?:攻击|爆破|入侵)/,
+      /是否.*(?:安全|攻击)/
     ]
   },
   
@@ -142,11 +191,10 @@ const SEMANTIC_PATTERNS = {
       /防火墙/,
       /waf防火墙/,
       
-      // Chinese queries
-      /(?:有|存在|使用|部署).*(?:waf|防火墙)/i,
-      /(?:waf|防火墙).*(?:有|存在|使用|部署)/i,
-      /(?:什么|哪个|哪种).*(?:waf|防火墙)/i,
-      /(?:waf|防火墙).*(?:什么|哪个|哪种)/i
+      // Chinese queries - 更宽松的模式
+      /(?:有|存在|使用|部署|用了|用的|用着).*(?:waf|防火墙)/i,  // "有waf", "用了waf"
+      /(?:waf|防火墙).*(?:有|存在|使用|部署|吗|啥|什么)/i,  // "waf吗", "waf是啥"
+      /(?:什么|哪个|哪种|啥).*(?:waf|防火墙)/i,  // "啥waf"
     ],
     
     questions: [
@@ -187,7 +235,30 @@ let lastTarget = null;
 export function parseSemanticIntent(userMessage) {
   const message = userMessage.trim();
   
-  // Extract target URL/IP
+  // Determine intent first
+  const intent = determineIntent(message);
+  
+  if (!intent) {
+    return {
+      success: false,
+      error: 'Could not determine scan intent from your message.'
+    };
+  }
+  
+  // Security audit doesn't need a target (scans local system)
+  if (intent === 'security_audit') {
+    return {
+      success: true,
+      tool: 'security_audit',
+      intent: intent,
+      target: null,
+      parameters: {},
+      method: 'semantic-understanding',
+      confidence: 'high'
+    };
+  }
+  
+  // Extract target URL/IP for other intents
   const target = extractTarget(message);
   
   // If no target found, try to use last target
@@ -209,16 +280,6 @@ export function parseSemanticIntent(userMessage) {
   
   // Store target for future
   lastTarget = finalTarget;
-  
-  // Determine intent by checking patterns
-  const intent = determineIntent(message);
-  
-  if (!intent) {
-    return {
-      success: false,
-      error: 'Could not determine scan intent from your message.'
-    };
-  }
   
   // Map intent to tool
   const toolMap = {
@@ -299,7 +360,7 @@ function detectScanIntent(message) {
  */
 function determineIntent(message) {
   // Priority order (most specific first)
-  const intentOrder = ['vulnerability', 'waf', 'cms', 'full', 'port', 'framework'];
+  const intentOrder = ['vulnerability', 'security_audit', 'waf', 'cms', 'full', 'port', 'framework'];
   
   for (const intentType of intentOrder) {
     const patterns = SEMANTIC_PATTERNS[intentType];

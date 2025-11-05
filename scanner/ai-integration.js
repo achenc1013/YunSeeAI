@@ -99,7 +99,17 @@ export function parseIntent(userMessage) {
   
   // Determine intent - be specific and precise
   const keywords = {
-    vulnerability: ['vulnerability', 'vulnerabilities', 'cve', 'exploit', 'security issue', 'security flaw', '漏洞', '安全漏洞', '安全问题', 'CVE'],
+    vulnerability: [
+      // English keywords
+      'vulnerability', 'vulnerabilities', 'cve', 'CVE', 'exploit', 'exploits',
+      'security issue', 'security flaw', 'security hole', 'security bug',
+      'known vulnerability', 'known cve',
+      
+      // Chinese keywords
+      '漏洞', '安全漏洞', '安全问题', '安全隐患', 'cve漏洞',
+      '有漏洞', '存在漏洞', '有没有漏洞', '是否存在漏洞',
+      '有cve', '存在cve', '有没有cve', 'cve吗', '漏洞吗'
+    ],
     waf: ['waf', 'firewall', '防火墙', 'web application firewall', 'waf防火墙'],  // WAF keywords
     port: [
       'port', 'ports', 'open port', 'service', 'services', '端口', '开放', '开放端口',
@@ -179,9 +189,13 @@ export function parseIntent(userMessage) {
  * @param {string} userMessage - User's natural language request
  * @returns {Promise<Object>} - Result with scan data and formatted response
  */
-export async function processQuery(userMessage) {
-  // Parse user intent
-  const intent = parseIntent(userMessage);
+export async function processQuery(userMessage, providedIntent = null) {
+  // Use provided intent if available, otherwise parse
+  let intent = providedIntent;
+  
+  if (!intent) {
+    intent = parseIntent(userMessage);
+  }
   
   if (!intent.success) {
     return {
@@ -193,13 +207,14 @@ export async function processQuery(userMessage) {
   
   // Execute the appropriate tool
   try {
-    const scanResult = await executeTool(intent.tool, intent.parameters);
+    const scanResult = await executeTool(intent.tool, intent.parameters || {});
     
     if (!scanResult.success) {
+      const targetMsg = intent.target ? `${intent.target}` : 'system';
       return {
         success: false,
         error: scanResult.error,
-        message: `Failed to scan ${intent.target}: ${scanResult.error}`
+        message: `Failed to scan ${targetMsg}: ${scanResult.error}`
       };
     }
     

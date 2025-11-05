@@ -3,7 +3,7 @@
  * Defines available tools for AI to call
  */
 
-import { scanPorts, scanFingerprint, scanFull, scanVulnerabilities, scanWAF } from './scanner-client.js';
+import { scanPorts, scanFingerprint, scanFull, scanVulnerabilities, scanWAF, performSecurityAudit } from './scanner-client.js';
 
 /**
  * Available tools for AI function calling
@@ -136,6 +136,19 @@ export const SCANNER_TOOLS = [
     handler: async (args) => {
       const { target, timeout = 10 } = args;
       return await scanWAF(target, timeout);
+    }
+  },
+  
+  {
+    name: 'security_audit',
+    description: 'Perform comprehensive security audit on the local system. Checks configurations (SSH, firewall), analyzes logs for attacks (SSH, FTP, SMB brute force), and auto-bans malicious IPs. Use this when user asks to check system security, detect attacks, or audit configurations.',
+    parameters: {
+      type: 'object',
+      properties: {},
+      required: []
+    },
+    handler: async (args) => {
+      return await performSecurityAudit();
     }
   }
 ];

@@ -60,6 +60,13 @@ export class CommandHandler {
         await this.assistant.clearHistory();
         return chalk.green('✓ Session reset');
       
+      case 'kb':
+      case 'knowledge':
+        return await this.handleKnowledgeBaseCommand(args);
+      
+      case 'debug':
+        return this.handleDebugCommand(args);
+      
       case 'exit':
       case 'quit':
         return 'EXIT';
@@ -67,6 +74,230 @@ export class CommandHandler {
       default:
         return chalk.yellow(`Unknown command: ${cmd}\nType /help for available commands`);
     }
+  }
+
+  /**
+   * Handle knowledge base commands
+   */
+  private async handleKnowledgeBaseCommand(args: string[]): Promise<string> {
+    if (args.length === 0) {
+      return this.showKnowledgeBaseHelp();
+    }
+
+    const subCommand = args[0].toLowerCase();
+    const kb = this.assistant.getKnowledgeBase();
+
+    switch (subCommand) {
+      case 'add': {
+        // Add knowledge from text
+        if (args.length < 2) {
+          return chalk.yellow('用法: /kb add <知识内容>\n示例: /kb add Python是一种高级编程语言');
+        }
+        
+        const content = args.slice(1).join(' ');
+        const entry = kb.addKnowledge(content, 'manual');
+        
+        return chalk.green(`✓ 知识已添加到知识库\n`) +
+               chalk.gray(`   ID: ${entry.id}\n`) +
+               chalk.gray(`   内容: ${content.substring(0, 50)}${content.length > 50 ? '...' : ''}`);
+      }
+
+      case 'addfile': {
+        // Add knowledge from file
+        if (args.length < 2) {
+          return chalk.yellow('用法: /kb addfile <文件路径>\n示例: /kb addfile ./docs/readme.md');
+        }
+        
+        const filePath = args[1];
+        const entry = kb.addFromFile(filePath);
+        
+        if (entry) {
+          return chalk.green(`✓ 已从文件添加知识到知识库\n`) +
+                 chalk.gray(`   文件: ${filePath}\n`) +
+                 chalk.gray(`   ID: ${entry.id}\n`) +
+                 chalk.gray(`   大小: ${entry.content.length} 字符`);
+        } else {
+          return chalk.red(`✗ 无法读取文件: ${filePath}`);
+        }
+      }
+
+      case 'list': {
+        // List all knowledge entries
+        const entries = kb.getAllKnowledge();
+        
+        if (entries.length === 0) {
+          return chalk.yellow('知识库为空\n使用 /kb add 或 /kb addfile 添加知识');
+        }
+
+        let output = chalk.cyan(`\n📚 知识库列表 (共 ${entries.length} 条):\n\n`);
+        
+        for (const entry of entries.slice(0, 10)) {
+          output += chalk.white(`${entry.id}\n`);
+          output += chalk.gray(`  来源: ${entry.source}${entry.sourceDetail ? ` (${entry.sourceDetail})` : ''}\n`);
+          output += chalk.gray(`  时间: ${new Date(entry.timestamp).toLocaleString('zh-CN')}\n`);
+          
+          const preview = entry.content.substring(0, 100).replace(/\n/g, ' ');
+          output += chalk.gray(`  内容: ${preview}${entry.content.length > 100 ? '...' : ''}\n\n`);
+        }
+
+        if (entries.length > 10) {
+          output += chalk.gray(`... 还有 ${entries.length - 10} 条知识\n`);
+        }
+
+        return output;
+      }
+
+      case 'search': {
+        // Search knowledge base
+        if (args.length < 2) {
+          return chalk.yellow('用法: /kb search <查询内容>\n示例: /kb search Python编程');
+        }
+
+        const query = args.slice(1).join(' ');
+        const results = kb.search(query, 5);
+
+        if (results.length === 0) {
+          return chalk.yellow(`未找到与 "${query}" 相关的知识`);
+        }
+
+        let output = chalk.cyan(`\n🔍 搜索结果 (共 ${results.length} 条):\n\n`);
+
+        for (let i = 0; i < results.length; i++) {
+          const result = results[i];
+          output += chalk.white(`${i + 1}. ${result.entry.id} (相关度: ${(result.score * 100).toFixed(0)}%)\n`);
+          output += chalk.gray(`   来源: ${result.entry.source}${result.entry.sourceDetail ? ` (${result.entry.sourceDetail})` : ''}\n`);
+          
+          const preview = result.entry.content.substring(0, 150).replace(/\n/g, ' ');
+          output += chalk.gray(`   ${preview}${result.entry.content.length > 150 ? '...' : ''}\n`);
+          output += chalk.yellow(`   匹配关键词: ${result.matchedKeywords.join(', ')}\n\n`);
+        }
+
+        return output;
+      }
+
+      case 'delete': {
+        // Delete knowledge entry
+        if (args.length < 2) {
+          return chalk.yellow('用法: /kb delete <知识ID>\n示例: /kb delete kb_1234567890_abc123');
+        }
+
+        const id = args[1];
+        const success = kb.deleteKnowledge(id);
+
+        if (success) {
+          return chalk.green(`✓ 已删除知识: ${id}`);
+        } else {
+          return chalk.red(`✗ 未找到知识ID: ${id}`);
+        }
+      }
+
+      case 'stats': {
+        // Show statistics
+        const stats = kb.getStats();
+        
+        let output = chalk.cyan('\n📊 知识库统计:\n\n');
+        output += chalk.white(`  总条目数: ${stats.totalEntries}\n`);
+        output += chalk.white(`  总大小: ${(stats.totalSize / 1024).toFixed(2)} KB\n\n`);
+        
+        if (Object.keys(stats.bySource).length > 0) {
+          output += chalk.white('  按来源分类:\n');
+          for (const [source, count] of Object.entries(stats.bySource)) {
+            output += chalk.gray(`    ${source}: ${count} 条\n`);
+          }
+        }
+
+        return output;
+      }
+
+      case 'clear': {
+        // Clear all knowledge (with confirmation)
+        const entries = kb.getAllKnowledge();
+        if (entries.length === 0) {
+          return chalk.yellow('知识库已经是空的');
+        }
+
+        kb.clearAll();
+        return chalk.green(`✓ 已清空知识库 (删除了 ${entries.length} 条知识)`);
+      }
+
+      case 'help':
+        return this.showKnowledgeBaseHelp();
+
+      default:
+        return chalk.yellow(`未知的知识库命令: ${subCommand}\n使用 /kb help 查看帮助`);
+    }
+  }
+
+  /**
+   * Handle debug command
+   */
+  private handleDebugCommand(args: string[]): string {
+    if (args.length === 0 || args[0].toLowerCase() === 'status') {
+      const isEnabled = this.assistant.isDebugMode();
+      return chalk.cyan(`\n🔧 调试模式: ${isEnabled ? chalk.green('开启') : chalk.gray('关闭')}\n`);
+    }
+
+    const action = args[0].toLowerCase();
+    
+    switch (action) {
+      case 'on':
+      case 'enable':
+        this.assistant.enableDebugMode();
+        return chalk.green(`\n✓ 调试模式已开启\n`) +
+               chalk.gray(`   现在您可以看到:\n`) +
+               chalk.gray(`   • 知识库检索详情\n`) +
+               chalk.gray(`   • AI接收到的完整上下文\n`) +
+               chalk.gray(`   • 关键词匹配情况\n`);
+      
+      case 'off':
+      case 'disable':
+        this.assistant.disableDebugMode();
+        return chalk.green(`\n✓ 调试模式已关闭\n`);
+      
+      default:
+        return chalk.yellow(`未知的调试命令: ${action}\n`) +
+               chalk.gray(`用法:\n`) +
+               chalk.gray(`  /debug on     - 开启调试模式\n`) +
+               chalk.gray(`  /debug off    - 关闭调试模式\n`) +
+               chalk.gray(`  /debug status - 查看状态\n`);
+    }
+  }
+
+  /**
+   * Show knowledge base help
+   */
+  private showKnowledgeBaseHelp(): string {
+    return chalk.cyan(`
+╔══════════════════════════════════════════════════════════════╗
+║                   知识库管理命令                              ║
+╚══════════════════════════════════════════════════════════════╝
+
+${chalk.bold('基本命令:')}
+  /kb add <内容>          添加知识到知识库
+  /kb addfile <文件>      从文件添加知识
+  /kb list                列出所有知识
+  /kb search <查询>       搜索知识库
+  /kb delete <ID>         删除指定知识
+  /kb stats               显示知识库统计
+  /kb clear               清空知识库
+  /kb help                显示此帮助
+
+${chalk.bold('使用示例:')}
+  /kb add Python是一种高级编程语言，广泛应用于数据分析
+  /kb addfile ./docs/security-guide.md
+  /kb search Python
+  /kb delete kb_1234567890_abc123
+
+${chalk.bold('知识库特性:')}
+  • 🧠 AI自动学习知识库内容
+  • 🔍 智能语义搜索
+  • 📁 支持多种文件格式 (txt, md等)
+  • 🎯 优先级: 网络搜索 > 知识库 > 普通对话
+
+${chalk.bold('提示:')}
+  当你向AI提问时，系统会自动搜索知识库中的相关内容，
+  并结合这些知识为你提供更准确的回答。
+`);
   }
 
   /**
@@ -86,51 +317,108 @@ export class CommandHandler {
       }
 
       // Check if this is a scanning request
+      // More inclusive: include URL/IP pattern detection
+      const hasTarget = /https?:\/\/|(?:\d{1,3}\.){3}\d{1,3}/.test(lowerInput);
+      
       const scanKeywords = [
-        'scan', 'port', 'ports', 'framework', 'technology', 'technologies',
-        'fingerprint', 'website', 'open', 'service', 'services',
-        'vulnerability', 'vulnerabilities', 'cve', 'exploit', 'security issue',
-        'cms', 'nmap', 'port scan', 'waf', 'firewall',
-        '扫描', '端口', '框架', '技术', '网站', '开放', '漏洞', '安全漏洞', '安全问题',
-        '端口扫描', '开通', '提供', '运行', '服务', 'CMS', '内容管理系统',
-        '哪些服务', '什么服务', '开了哪些', '提供了什么', '运行了什么',
-        'WAF', '防火墙', '防护'
+        // Explicit scanning actions
+        'scan', 'nmap', '扫描', '检测',
+        
+        // Security audit
+        'security audit', 'system security', '安全审计', '系统安全', '安全检查',
+        
+        // Action + target patterns (these imply scanning)
+        '有waf', '有防火墙', '啥框架', '啥cms', '啥waf',
+        '用了什么', '用了啥', '用的什么', '用的啥',
+        '用着什么', '用着啥', '使用了什么', '使用了啥',
+        '开了哪些', '开放了哪些', '运行了什么',
+        
+        // Do NOT include bare technical terms (cms, waf, framework)
+        // Those are checked separately with hasTarget
       ];
       
-      const isScanRequest = scanKeywords.some(kw => lowerInput.includes(kw));
+      // Determine if this is a scan request
+      // Priority 1: Has target + technical keyword = definitely a scan
+      // Priority 2: Has scan-specific keywords (scan, audit, etc.)
+      const hasTechnicalTerm = [
+        'waf', 'cms', 'framework', 'port', 
+        'vulnerability', 'vulnerabilities', 'cve', 'exploit',
+        '框架', '端口', '防火墙', '漏洞', 'CVE'
+      ].some(t => lowerInput.includes(t));
+      const hasScanKeyword = scanKeywords.some(kw => lowerInput.includes(kw));
+      
+      const isScanRequest = (hasTarget && hasTechnicalTerm) || hasScanKeyword;
       
       if (isScanRequest) {
-        // Use semantic pattern matching for intelligent understanding
+        // Use intelligent intent classification (enhanced pattern matching + LLM ready)
         let intent = null;
         
         try {
-          // Import semantic parser
+          // Try LLM-based intent classifier first (uses enhanced patterns)
           // @ts-ignore
-          const { parseSemanticIntent } = await import('../../scanner/semantic-intent-parser.js');
+          const { classifyIntent } = await import('../../scanner/llm-intent-classifier.js');
+          const classified = await classifyIntent(input);
           
-          // Try semantic understanding
-          intent = parseSemanticIntent(input);
-          
-          if (intent.success && intent.method === 'semantic-understanding') {
-            process.stdout.write(chalk.gray(`   💡 智能理解: 语义分析识别意图\n`));
+          if (classified.success && classified.intent) {
+            // LLM classifier succeeded, now extract target if needed
+            if (classified.intent === 'security_audit') {
+              // Security audit doesn't need target
+              intent = {
+                success: true,
+                intent: 'security_audit',
+                target: null,
+                tool: 'security_audit',
+                method: classified.method,
+                confidence: classified.confidence
+              };
+              process.stdout.write(chalk.gray(`   💡 智能理解: ${classified.method === 'llm-understanding' ? 'AI模型理解' : '增强语义分析'}\n`));
+            } else {
+              // Other intents need target, use semantic parser for extraction
+              // @ts-ignore
+              const { parseSemanticIntent } = await import('../../scanner/semantic-intent-parser.js');
+              intent = parseSemanticIntent(input);
+              
+              // Override intent with LLM classification if semantic parser succeeded
+              if (intent.success) {
+                intent.intent = classified.intent;
+                intent.method = classified.method;
+                process.stdout.write(chalk.gray(`   💡 智能理解: 增强语义分析\n`));
+              }
+            }
+          } else {
+            // Fallback to semantic parser
+            // @ts-ignore
+            const { parseSemanticIntent } = await import('../../scanner/semantic-intent-parser.js');
+            intent = parseSemanticIntent(input);
+            
+            if (intent.success) {
+              process.stdout.write(chalk.gray(`   💡 智能理解: 语义分析识别意图\n`));
+            }
           }
         } catch (error) {
-          // Fallback to simple keyword parsing
-          console.error('[Semantic Parser] Failed, using fallback:', error);
+          // Final fallback
+          console.error('[Intent Classifier] Failed, using final fallback:', error);
           // @ts-ignore
           const { parseIntent } = await import('../../scanner/ai-integration.js');
           intent = parseIntent(input);
         }
         
-        if (intent.success && intent.target) {
+        // Security audit doesn't need a target (scans local system)
+        const needsTarget = intent.intent !== 'security_audit';
+        
+        if (intent.success && (intent.target || !needsTarget)) {
           // This is a valid scan request - execute it
           process.stdout.write(chalk.yellow('\n🔍 检测到扫描请求，正在执行扫描...\n'));
-          process.stdout.write(chalk.gray(`   目标: ${intent.target}\n`));
+          if (intent.target) {
+            process.stdout.write(chalk.gray(`   目标: ${intent.target}\n`));
+          } else {
+            process.stdout.write(chalk.gray(`   目标: 本地系统\n`));
+          }
           process.stdout.write(chalk.gray(`   类型: ${intent.intent}\n\n`));
           
           try {
-            // Execute the scan
-            const scanResult = await processQuery(input);
+            // Execute the scan with the already-parsed intent
+            const scanResult = await processQuery(input, intent);
             
             if (scanResult.success) {
               // Show scan results
@@ -342,6 +630,108 @@ export class CommandHandler {
                   }
                 }
               }
+              else if (intent.intent === 'security_audit') {
+                // Security audit display
+                const auditData = scanResult.raw_results;
+                if (auditData.success) {
+                  displayResult += `🔒 系统安全审计报告\n\n`;
+                  displayResult += `系统类型: ${auditData.os_type} (${auditData.os_name})\n`;
+                  displayResult += `扫描时间: ${new Date(auditData.timestamp).toLocaleString('zh-CN')}\n\n`;
+                  
+                  // Display configuration issues
+                  if (auditData.config_issues && auditData.config_issues.length > 0) {
+                    displayResult += chalk.yellow(`⚠️  配置安全问题 (${auditData.config_issues.length}):\n\n`);
+                    
+                    const highIssues = auditData.config_issues.filter((i: any) => i.severity === 'high');
+                    const mediumIssues = auditData.config_issues.filter((i: any) => i.severity === 'medium');
+                    const lowIssues = auditData.config_issues.filter((i: any) => i.severity === 'low');
+                    
+                    if (highIssues.length > 0) {
+                      displayResult += chalk.red(`  🔴 高危 (${highIssues.length}):\n`);
+                      highIssues.forEach((issue: any) => {
+                        displayResult += `     • ${issue.service}: ${issue.issue}\n`;
+                        displayResult += chalk.gray(`       建议: ${issue.recommendation}\n`);
+                      });
+                      displayResult += '\n';
+                    }
+                    
+                    if (mediumIssues.length > 0) {
+                      displayResult += chalk.yellow(`  🟡 中危 (${mediumIssues.length}):\n`);
+                      mediumIssues.forEach((issue: any) => {
+                        displayResult += `     • ${issue.service}: ${issue.issue}\n`;
+                      });
+                      displayResult += '\n';
+                    }
+                    
+                    if (lowIssues.length > 0) {
+                      displayResult += chalk.blue(`  🔵 低危 (${lowIssues.length}):\n`);
+                      lowIssues.forEach((issue: any) => {
+                        displayResult += `     • ${issue.service}: ${issue.issue}\n`;
+                      });
+                      displayResult += '\n';
+                    }
+                  } else {
+                    displayResult += chalk.green(`  ✅ 未发现配置安全问题\n\n`);
+                  }
+                  
+                  // Display log analysis results
+                  if (auditData.log_analysis && Object.keys(auditData.log_analysis).length > 0) {
+                    displayResult += chalk.red(`🚨 攻击检测:\n\n`);
+                    
+                    if (auditData.log_analysis.ssh) {
+                      const sshData = auditData.log_analysis.ssh;
+                      displayResult += `  📊 SSH暴力破解尝试:\n`;
+                      displayResult += `     总失败次数: ${sshData.total_failed_attempts}\n`;
+                      
+                      if (sshData.suspicious_ips && sshData.suspicious_ips.length > 0) {
+                        displayResult += chalk.red(`     可疑IP (${sshData.suspicious_ips.length}):\n`);
+                        sshData.suspicious_ips.slice(0, 5).forEach((ip: any) => {
+                          const threatIcon = ip.threat_level === 'high' ? '🔴' : '🟡';
+                          displayResult += `       ${threatIcon} ${ip.ip} - ${ip.failed_attempts}次失败\n`;
+                        });
+                        if (sshData.suspicious_ips.length > 5) {
+                          displayResult += chalk.gray(`       ... 还有${sshData.suspicious_ips.length - 5}个可疑IP\n`);
+                        }
+                      }
+                      displayResult += '\n';
+                    }
+                    
+                    if (auditData.log_analysis.ftp) {
+                      displayResult += `  📊 FTP登录失败: ${auditData.log_analysis.ftp.total_failed_attempts}次\n\n`;
+                    }
+                    
+                    if (auditData.log_analysis.smb) {
+                      displayResult += `  📊 SMB登录失败: ${auditData.log_analysis.smb.total_failed_attempts}次\n\n`;
+                    }
+                  }
+                  
+                  // Display banned IPs
+                  if (auditData.banned_ips && auditData.banned_ips.length > 0) {
+                    displayResult += chalk.green(`✅ 自动封禁 (${auditData.banned_ips.length}个IP):\n\n`);
+                    auditData.banned_ips.forEach((ban: any) => {
+                      displayResult += `  🛡️  ${ban.ip}\n`;
+                      displayResult += `     失败次数: ${ban.failed_attempts}\n`;
+                      displayResult += `     封禁方式: ${ban.method}\n`;
+                      displayResult += chalk.gray(`     时间: ${new Date(ban.timestamp).toLocaleString('zh-CN')}\n`);
+                    });
+                    displayResult += '\n';
+                  }
+                  
+                  // Display recommendations
+                  if (auditData.recommendations && auditData.recommendations.length > 0) {
+                    displayResult += chalk.cyan(`💡 安全建议:\n\n`);
+                    auditData.recommendations.forEach((rec: string) => {
+                      displayResult += `  • ${rec}\n`;
+                    });
+                  }
+                  
+                  // Generate AI context
+                  const highCount = auditData.config_issues ? auditData.config_issues.filter((i: any) => i.severity === 'high').length : 0;
+                  const bannedCount = auditData.banned_ips ? auditData.banned_ips.length : 0;
+                  aiContext = `系统安全审计完成。发现${highCount}个高危配置问题，`;
+                  aiContext += bannedCount > 0 ? `自动封禁了${bannedCount}个攻击IP。` : '未检测到活跃攻击。';
+                }
+              }
               else if (intent.intent === 'waf') {
                 // WAF detection display
                 const wafData = scanResult.raw_results;
@@ -429,6 +819,8 @@ export class CommandHandler {
                 aiPrompt = `${aiContext}\n\n简要分析漏洞风险和修复建议。中文，2-3句。`;
               } else if (intent.intent === 'port') {
                 aiPrompt = `${aiContext}\n\n分析端口安全风险，给出建议。中文，2句话。`;
+              } else if (intent.intent === 'security_audit') {
+                aiPrompt = `${aiContext}\n\n分析系统安全状况和建议。中文，2-3句。`;
               } else if (intent.intent === 'waf') {
                 aiPrompt = `${aiContext}\n\n分析WAF防护效果和建议。中文，2句话。`;
               } else if (intent.intent === 'cms') {
@@ -494,7 +886,16 @@ ${chalk.bold('Built-in Commands:')}
   /history            Show conversation history
   /status             Show system status
   /reset              Reset the session
+  /kb, /knowledge     Knowledge base management (use /kb help)
+  /debug on/off       Enable/disable debug mode (see AI context)
   /exit, /quit        Exit YunSeeAI
+
+${chalk.bold('Knowledge Base Commands:')}
+  /kb add <内容>      Add knowledge to knowledge base
+  /kb addfile <文件>  Add knowledge from file
+  /kb list            List all knowledge entries
+  /kb search <查询>   Search knowledge base
+  /kb help            Show knowledge base help
 
 ${chalk.bold('Natural Language Commands (examples):')}
   Check my server security configuration
@@ -507,10 +908,12 @@ ${chalk.bold('Tips:')}
   • Just type naturally - the AI understands context
   • You can ask follow-up questions
   • Commands starting with / are system commands
+  • 🧠 AI automatically learns from knowledge base
   • Press Ctrl+C to exit at any time
 
 ${chalk.bold('Module Status:')}
   🛡️  AI Assistant    - Active
+  📚 Knowledge Base   - Active (AI自主学习)
   🔒 WAF Module       - Available (use: "enable waf")
   🔍 Scanner Module   - Active (自动识别扫描请求)
   ⚙️  Audit Module    - Available (use: "audit config")
@@ -552,6 +955,9 @@ ${chalk.bold('Scanner Examples (扫描示例):')}
     const tokenCount = this.assistant.getTokenCount();
     const maxTokens = 4096; // From config
     const usage = ((tokenCount / maxTokens) * 100).toFixed(1);
+    
+    const kb = this.assistant.getKnowledgeBase();
+    const kbStats = kb.getStats();
 
     return chalk.cyan(`
 ╔══════════════════════════════════════════════════════════════╗
@@ -562,8 +968,14 @@ ${chalk.bold('AI Model:')}
   Status:             ${chalk.green('✓ Active')}
   Context Usage:      ${usage}% (${tokenCount}/${maxTokens} tokens)
   
+${chalk.bold('Knowledge Base:')}
+  Status:             ${chalk.green('✓ Active')}
+  Entries:            ${kbStats.totalEntries} 条
+  Total Size:         ${(kbStats.totalSize / 1024).toFixed(2)} KB
+  
 ${chalk.bold('Modules:')}
   🛡️  AI Assistant    ${chalk.green('✓ Running')}
+  📚 Knowledge Base   ${chalk.green('✓ Running')}
   🔒 WAF Module       ${chalk.gray('○ Standby')}
   🔍 Scanner Module   ${chalk.gray('○ Standby')}
   ⚙️  Audit Module    ${chalk.gray('○ Standby')}

@@ -157,6 +157,23 @@ export async function scanWAF(target, timeout = 10) {
   }
 }
 
+/**
+ * Perform security audit on the system
+ * Checks configurations, analyzes logs, and auto-bans malicious IPs
+ * @returns {Promise<Object>} - Security audit results
+ */
+export async function performSecurityAudit() {
+  try {
+    const result = await executePythonScript('security_audit.py', []);
+    return result;
+  } catch (error) {
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+}
+
 export async function scanVulnerabilities(target, fingerprintData = null, online = true) {
   try {
     // If no fingerprint data, scan first

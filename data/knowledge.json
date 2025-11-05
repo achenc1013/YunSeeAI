@@ -1,0 +1,23 @@
+[
+  {
+    "id": "kb_1762346210490_z38pjh9",
+    "content": "Linux系统中查看网卡信息的命令是ifconfig",
+    "source": "manual",
+    "timestamp": 1762346210490,
+    "tags": []
+  },
+  {
+    "id": "kb_1762346697026_7efjnre",
+    "content": "应急响应首先使用history看历史命令记录",
+    "source": "manual",
+    "timestamp": 1762346697026,
+    "tags": []
+  },
+  {
+    "id": "kb_1762346795723_fio84y8",
+    "content": "测试：这是一条测试记录",
+    "source": "manual",
+    "timestamp": 1762346795723,
+    "tags": []
+  }
+]

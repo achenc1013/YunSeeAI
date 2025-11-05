@@ -6,6 +6,8 @@
 
 import { ModelServer } from './ai/ModelServer.js';
 import { AssistantService } from './ai/AssistantService.js';
+import { KnowledgeBase } from './ai/KnowledgeBase.js';
+import { WebSearch } from './ai/WebSearch.js';
 import { CLIInterface } from './cli/Interface.js';
 import { DEFAULT_CONFIG } from './config/default.js';
 import chalk from 'chalk';
@@ -52,8 +54,21 @@ async function main() {
     
     spinner.succeed('AI model loaded successfully');
 
-    // Create assistant service
-    const assistant = new AssistantService(modelServer);
+    // Initialize knowledge base and web search
+    console.log(chalk.cyan('📚 Initializing knowledge base...'));
+    const knowledgeBase = new KnowledgeBase(DEFAULT_CONFIG.knowledgeBase.storagePath);
+    const kbStats = knowledgeBase.getStats();
+    console.log(chalk.gray(`   Loaded ${kbStats.totalEntries} knowledge entries`));
+
+    const webSearch = new WebSearch(DEFAULT_CONFIG.webSearch);
+
+    // Create assistant service with knowledge base
+    const assistant = new AssistantService(
+      modelServer,
+      DEFAULT_CONFIG.prompts.system,
+      knowledgeBase,
+      webSearch
+    );
     
     // Create new CLI with initialized assistant
     const mainCLI = new CLIInterface(assistant);

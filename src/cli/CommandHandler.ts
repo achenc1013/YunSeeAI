@@ -220,6 +220,28 @@ export class CommandHandler {
         return chalk.green(`✓ 已清空知识库 (删除了 ${entries.length} 条知识)`);
       }
 
+      case 'semantic': {
+        // Toggle semantic search
+        if (args.length < 2) {
+          const isEnabled = kb.isSemanticSearchEnabled();
+          return chalk.cyan(`\n🧠 语义搜索: ${isEnabled ? chalk.green('开启') : chalk.gray('关闭')}\n`) +
+                 chalk.gray(`   用法: /kb semantic on|off\n`);
+        }
+
+        const action = args[1].toLowerCase();
+        if (action === 'on') {
+          kb.setSemanticSearch(true);
+          return chalk.green(`\n✓ 语义搜索已开启\n`) +
+                 chalk.gray(`   现在会根据句意理解问题，而不只是关键词匹配\n`);
+        } else if (action === 'off') {
+          kb.setSemanticSearch(false);
+          return chalk.yellow(`\n✓ 语义搜索已关闭\n`) +
+                 chalk.gray(`   恢复为传统关键词匹配模式\n`);
+        } else {
+          return chalk.yellow(`未知选项: ${action}\n用法: /kb semantic on|off`);
+        }
+      }
+
       case 'help':
         return this.showKnowledgeBaseHelp();
 
@@ -274,11 +296,12 @@ export class CommandHandler {
 
 ${chalk.bold('基本命令:')}
   /kb add <内容>          添加知识到知识库
-  /kb addfile <文件>      从文件添加知识
+  /kb addfile <文件>      从文件添加知识（支持相对/绝对路径）
   /kb list                列出所有知识
   /kb search <查询>       搜索知识库
   /kb delete <ID>         删除指定知识
   /kb stats               显示知识库统计
+  /kb semantic on/off     开启/关闭语义搜索
   /kb clear               清空知识库
   /kb help                显示此帮助
 
@@ -290,9 +313,17 @@ ${chalk.bold('使用示例:')}
 
 ${chalk.bold('知识库特性:')}
   • 🧠 AI自动学习知识库内容
-  • 🔍 智能语义搜索
-  • 📁 支持多种文件格式 (txt, md等)
+  • 🔍 智能语义搜索（理解句意，非关键词匹配）
+  • 📁 支持多种文件格式 (txt, md, json等)
+  • 📂 支持相对路径和绝对路径
   • 🎯 优先级: 网络搜索 > 知识库 > 普通对话
+
+${chalk.bold('语义搜索示例:')}
+  问题: "Python适合做什么？"
+  也能匹配: "Python应用领域" "Python用途" "Python使用场景"
+  
+  传统关键词只能匹配 "Python" + "做什么"
+  语义搜索能理解 "应用" = "用途" = "适合做" = "使用场景"
 
 ${chalk.bold('提示:')}
   当你向AI提问时，系统会自动搜索知识库中的相关内容，

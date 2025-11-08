@@ -68,11 +68,12 @@ export class AssistantService {
 
   /**
    * Enhance user message with context from knowledge base and web search
-   * Priority: Web Search > Knowledge Base
+   * Priority: Web Search > Knowledge Base (only high relevance)
    */
   private async enhanceMessageWithContext(userMessage: string): Promise<string> {
     let context = '';
     let hasWebResults = false;
+    let hasKBResults = false;
 
     // 1. Try web search first (highest priority)
     if (this.webSearch.isAvailable()) {
@@ -81,26 +82,46 @@ export class AssistantService {
         if (webResults && webResults.length > 0) {
           context += this.webSearch.buildContextFromResults(webResults);
           hasWebResults = true;
+          
+          if (this.debugMode) {
+            console.log(chalk.green('\n🌐 [调试模式] 网络搜索结果:'));
+            console.log(chalk.gray(`   找到 ${webResults.length} 条搜索结果（最高优先级）`));
+          }
         }
       } catch (error) {
         console.error(chalk.yellow('⚠ Web search failed:', error));
       }
     }
 
-    // 2. Search knowledge base (second priority)
+    // 2. Search knowledge base (second priority, only if high relevance >= 50%)
     try {
-      const kbResults = this.knowledgeBase.search(userMessage, 3);
+      const kbResults = this.knowledgeBase.search(userMessage, 2); // 最多2条
+      
+      // 只有在找到高质量匹配时才使用知识库（50%以上）
       if (kbResults && kbResults.length > 0) {
-        const kbContext = this.knowledgeBase.buildContextFromResults(kbResults);
-        context += kbContext;
+        // 再次过滤：确保至少有一条达到60%相关度
+        const highQualityResults = kbResults.filter(r => r.score >= 0.6);
         
-        // Debug mode: show what knowledge was found
-        if (this.debugMode) {
-          console.log(chalk.magenta('\n🔍 [调试模式] 知识库检索结果:'));
-          console.log(chalk.gray(`   找到 ${kbResults.length} 条相关知识`));
-          kbResults.forEach((result, i) => {
-            console.log(chalk.gray(`   ${i + 1}. 相关度: ${(result.score * 100).toFixed(0)}% | 关键词: ${result.matchedKeywords.join(', ')}`));
-          });
+        if (highQualityResults.length > 0) {
+          const kbContext = this.knowledgeBase.buildContextFromResults(highQualityResults);
+          context += kbContext;
+          hasKBResults = true;
+          
+          // Debug mode: show what knowledge was found
+          if (this.debugMode) {
+            console.log(chalk.magenta('\n🔍 [调试模式] 知识库检索结果:'));
+            console.log(chalk.gray(`   找到 ${highQualityResults.length} 条高相关度知识（≥60%）`));
+            highQualityResults.forEach((result, i) => {
+              console.log(chalk.gray(`   ${i + 1}. 相关度: ${(result.score * 100).toFixed(0)}% | 概念: ${result.matchedKeywords.slice(0, 3).join(', ')}`));
+            });
+          }
+        } else {
+          if (this.debugMode) {
+            console.log(chalk.yellow('\n⚠ [调试模式] 知识库匹配度过低（<60%），已跳过'));
+            if (kbResults.length > 0) {
+              console.log(chalk.gray(`   最高相关度: ${(kbResults[0].score * 100).toFixed(0)}%（阈值60%）`));
+            }
+          }
         }
       } else {
         if (this.debugMode) {
@@ -113,13 +134,22 @@ export class AssistantService {
 
     // Build enhanced message
     if (context) {
-      const enhancedMsg = `${context}\n用户问题: ${userMessage}\n\n请基于以上${hasWebResults ? '网络搜索结果和' : ''}知识库内容回答问题。`;
+      let enhancedMsg = '';
+      
+      if (hasWebResults && hasKBResults) {
+        enhancedMsg = `${context}\n用户问题: ${userMessage}\n\n请优先参考网络搜索结果，结合知识库内容回答。`;
+      } else if (hasWebResults) {
+        enhancedMsg = `${context}\n用户问题: ${userMessage}\n\n请基于网络搜索结果回答。`;
+      } else if (hasKBResults) {
+        enhancedMsg = `${context}\n用户问题: ${userMessage}\n\n请基于知识库内容回答。`;
+      }
       
       // Debug mode: show the full enhanced message sent to AI
       if (this.debugMode) {
-        console.log(chalk.magenta('\n📤 [调试模式] AI实际接收到的完整消息:'));
+        console.log(chalk.magenta('\n📤 [调试模式] AI实际接收到的上下文:'));
         console.log(chalk.gray('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'));
-        console.log(chalk.cyan(enhancedMsg.substring(0, 500) + (enhancedMsg.length > 500 ? '...' : '')));
+        const preview = enhancedMsg.substring(0, 300);
+        console.log(chalk.cyan(preview + (enhancedMsg.length > 300 ? '...' : '')));
         console.log(chalk.gray('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n'));
       }
       
@@ -127,7 +157,7 @@ export class AssistantService {
     }
 
     if (this.debugMode) {
-      console.log(chalk.yellow('\n⚠ [调试模式] 未使用知识库增强（无相关内容）\n'));
+      console.log(chalk.yellow('\n⚠ [调试模式] 未使用任何外部知识（网络搜索未启用且知识库无高相关内容）\n'));
     }
 
     return userMessage;

@@ -2,9 +2,10 @@
  * Knowledge Base - Manages local knowledge storage and retrieval
  */
 
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
+import { existsSync, readFileSync, writeFileSync, mkdirSync, statSync } from 'fs';
 import path from 'path';
 import chalk from 'chalk';
+import { SemanticMatcher } from './SemanticMatcher.js';
 
 export interface KnowledgeEntry {
   id: string;
@@ -24,9 +25,12 @@ export interface SearchResult {
 export class KnowledgeBase {
   private knowledgeFilePath: string;
   private knowledge: KnowledgeEntry[] = [];
+  private semanticMatcher: SemanticMatcher;
+  private useSemanticSearch: boolean = true;
 
   constructor(storagePath: string = './data/knowledge.json') {
     this.knowledgeFilePath = path.resolve(process.cwd(), storagePath);
+    this.semanticMatcher = new SemanticMatcher();
     this.ensureStorageExists();
     this.loadKnowledge();
   }
@@ -98,28 +102,141 @@ export class KnowledgeBase {
   }
 
   /**
-   * Add knowledge from file
+   * Add knowledge from file (Enhanced)
    */
   addFromFile(filePath: string): KnowledgeEntry | null {
     try {
-      const resolvedPath = path.resolve(process.cwd(), filePath);
+      // 支持相对路径和绝对路径
+      let resolvedPath: string;
       
-      if (!existsSync(resolvedPath)) {
-        throw new Error('File not found');
+      // 如果是绝对路径，直接使用
+      if (path.isAbsolute(filePath)) {
+        resolvedPath = filePath;
+      } else {
+        // 相对路径，相对于当前工作目录
+        resolvedPath = path.resolve(process.cwd(), filePath);
       }
 
+      // 检查文件是否存在
+      if (!existsSync(resolvedPath)) {
+        console.error(chalk.red(`✗ 文件不存在: ${resolvedPath}`));
+        console.error(chalk.yellow(`   提示: 请检查路径是否正确`));
+        return null;
+      }
+
+      // 检查是否是文件（而非目录）
+      const stats = statSync(resolvedPath);
+      if (!stats.isFile()) {
+        console.error(chalk.red(`✗ 指定的路径不是文件: ${resolvedPath}`));
+        return null;
+      }
+
+      // 检查文件大小
+      const fileSizeInBytes = stats.size;
+      const fileSizeInKB = fileSizeInBytes / 1024;
+      const maxSizeKB = 1024; // 1MB
+
+      if (fileSizeInKB > maxSizeKB) {
+        console.error(chalk.red(`✗ 文件过大 (${fileSizeInKB.toFixed(2)} KB)`));
+        console.error(chalk.yellow(`   最大支持: ${maxSizeKB} KB`));
+        return null;
+      }
+
+      // 读取文件内容
+      console.log(chalk.gray(`   正在读取文件: ${resolvedPath}`));
+      console.log(chalk.gray(`   文件大小: ${fileSizeInKB.toFixed(2)} KB`));
+
       const content = readFileSync(resolvedPath, 'utf-8');
+      
+      // 验证内容不为空
+      if (!content || content.trim().length === 0) {
+        console.error(chalk.red(`✗ 文件内容为空`));
+        return null;
+      }
+
       const fileName = path.basename(filePath);
+      const ext = path.extname(filePath).substring(1);
+      
+      // 根据文件类型解析内容
+      const parsedContent = this.parseFileContent(content, ext);
       
       // Extract tags from file extension and name
-      const ext = path.extname(filePath).substring(1);
-      const tags = [ext, fileName.replace(path.extname(fileName), '')];
+      const tags = [
+        ext, 
+        fileName.replace(path.extname(fileName), ''),
+        ...this.extractKeywordsFromContent(parsedContent, 5)
+      ];
 
-      return this.addKnowledge(content, 'file', filePath, tags);
-    } catch (error) {
-      console.error(chalk.red(`✗ Failed to read file: ${error}`));
+      console.log(chalk.gray(`   提取的标签: ${tags.slice(0, 5).join(', ')}`));
+
+      return this.addKnowledge(parsedContent, 'file', filePath, tags);
+    } catch (error: any) {
+      console.error(chalk.red(`✗ 读取文件失败: ${error.message}`));
+      if (error.code === 'ENOENT') {
+        console.error(chalk.yellow(`   文件不存在，请检查路径`));
+      } else if (error.code === 'EACCES') {
+        console.error(chalk.yellow(`   没有权限读取文件`));
+      } else if (error.code === 'EISDIR') {
+        console.error(chalk.yellow(`   这是一个目录，不是文件`));
+      }
       return null;
     }
+  }
+
+  /**
+   * Parse file content based on file type
+   */
+  private parseFileContent(content: string, extension: string): string {
+    switch (extension.toLowerCase()) {
+      case 'md':
+      case 'markdown':
+        // 移除Markdown格式符号，但保留内容结构
+        return content
+          .replace(/^#{1,6}\s+/gm, '') // 移除标题符号
+          .replace(/\*\*(.*?)\*\*/g, '$1') // 移除粗体
+          .replace(/\*(.*?)\*/g, '$1') // 移除斜体
+          .replace(/\[(.*?)\]\(.*?\)/g, '$1') // 保留链接文字
+          .replace(/```[\s\S]*?```/g, '') // 移除代码块
+          .replace(/`(.*?)`/g, '$1'); // 移除行内代码符号
+
+      case 'txt':
+      case 'log':
+        return content;
+
+      case 'json':
+        try {
+          // 格式化JSON为可读文本
+          const obj = JSON.parse(content);
+          return JSON.stringify(obj, null, 2);
+        } catch {
+          return content;
+        }
+
+      default:
+        return content;
+    }
+  }
+
+  /**
+   * Extract keywords from content for tags
+   */
+  private extractKeywordsFromContent(content: string, limit: number = 5): string[] {
+    // 简单的关键词提取：找出出现频率高的词
+    const words = content
+      .toLowerCase()
+      .replace(/[^\w\s\u4e00-\u9fa5]/g, ' ')
+      .split(/\s+/)
+      .filter(w => w.length > 2);
+
+    const freq = new Map<string, number>();
+    words.forEach(w => {
+      freq.set(w, (freq.get(w) || 0) + 1);
+    });
+
+    return Array.from(freq.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, limit)
+      .map(([word]) => word);
   }
 
   /**
@@ -152,10 +269,51 @@ export class KnowledgeBase {
   }
 
   /**
-   * Search knowledge base with keyword matching
-   * This is a simple implementation - can be enhanced with vector embeddings
+   * Search knowledge base with semantic understanding (Upgraded)
    */
   search(query: string, limit: number = 5): SearchResult[] {
+    if (this.useSemanticSearch) {
+      return this.semanticSearch(query, limit);
+    } else {
+      return this.keywordSearch(query, limit);
+    }
+  }
+
+  /**
+   * Semantic search - understands meaning, not just keywords
+   */
+  private semanticSearch(query: string, limit: number = 5): SearchResult[] {
+    const results: SearchResult[] = [];
+
+    for (const entry of this.knowledge) {
+      // 使用语义匹配器计算相似度
+      const semanticResult = this.semanticMatcher.calculateSimilarity(
+        query,
+        entry.content
+      );
+
+      // 提高阈值：只返回高相关度的结果（50%以上）
+      // 避免低质量匹配，精选答案而非全盘托出
+      if (semanticResult.score >= 0.5) {
+        results.push({
+          entry,
+          score: semanticResult.score,
+          matchedKeywords: semanticResult.matchedConcepts,
+        });
+      }
+    }
+
+    // Sort by score (descending) and limit results
+    // 只返回TOP 2最相关的，避免信息过载
+    return results
+      .sort((a, b) => b.score - a.score)
+      .slice(0, Math.min(limit, 2));
+  }
+
+  /**
+   * Keyword search (Legacy method, kept for compatibility)
+   */
+  private keywordSearch(query: string, limit: number = 5): SearchResult[] {
     const queryLower = query.toLowerCase();
     const keywords = queryLower.split(/\s+/).filter(w => w.length > 1);
 
@@ -208,6 +366,20 @@ export class KnowledgeBase {
   }
 
   /**
+   * Enable/disable semantic search
+   */
+  setSemanticSearch(enabled: boolean): void {
+    this.useSemanticSearch = enabled;
+  }
+
+  /**
+   * Check if semantic search is enabled
+   */
+  isSemanticSearchEnabled(): boolean {
+    return this.useSemanticSearch;
+  }
+
+  /**
    * Clear all knowledge
    */
   clearAll(): void {
@@ -256,10 +428,29 @@ export class KnowledgeBase {
     for (let i = 0; i < results.length; i++) {
       const result = results[i];
       context += `知识${i + 1} (相关度: ${(result.score * 100).toFixed(0)}%):\n`;
-      context += `${result.entry.content}\n\n`;
+      
+      // 智能截取：如果内容过长，只提取最相关的部分
+      const content = result.entry.content;
+      if (content.length > 500) {
+        // 尝试提取包含关键概念的段落
+        const paragraphs = content.split(/\n\n+/);
+        const relevantParagraphs = paragraphs.filter(p => 
+          result.matchedKeywords.some(kw => p.toLowerCase().includes(kw.toLowerCase()))
+        );
+        
+        if (relevantParagraphs.length > 0) {
+          // 取前2段最相关的
+          context += relevantParagraphs.slice(0, 2).join('\n\n') + '\n\n';
+        } else {
+          // 否则取前500字符
+          context += content.substring(0, 500) + '...\n\n';
+        }
+      } else {
+        context += `${content}\n\n`;
+      }
     }
 
-    context += '【以上内容来自本地知识库】\n';
+    context += '【以上为精选的高相关度知识】\n';
     
     return context;
   }
